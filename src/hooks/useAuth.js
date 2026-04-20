@@ -3,33 +3,32 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 
-const TOKEN_KEY   = "corp_hq_access";
-const REFRESH_KEY = "corp_hq_refresh";
-const USER_KEY    = "corp_hq_user";
+// Only the access token and user profile are kept in localStorage.
+// The refresh token lives exclusively in an httpOnly cookie set by the
+// server — it is never readable by JavaScript, eliminating the largest
+// XSS-exfiltration target.
+const TOKEN_KEY = "corp_hq_access";
+const USER_KEY  = "corp_hq_user";
 
-function saveTokens(access, refresh, user) {
-  localStorage.setItem(TOKEN_KEY,   access);
-  localStorage.setItem(REFRESH_KEY, refresh);
-  localStorage.setItem(USER_KEY,    JSON.stringify(user));
+function saveSession(access, user) {
+  localStorage.setItem(TOKEN_KEY, access);
+  localStorage.setItem(USER_KEY,  JSON.stringify(user));
 }
 
-function clearTokens() {
+function clearSession() {
   localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(USER_KEY);
 }
 
 function getStored() {
-  if (typeof window === "undefined")
-    return { access: null, refresh: null, user: null };
+  if (typeof window === "undefined") return { access: null, user: null };
   try {
     return {
-      access:  localStorage.getItem(TOKEN_KEY),
-      refresh: localStorage.getItem(REFRESH_KEY),
-      user:    JSON.parse(localStorage.getItem(USER_KEY) || "null"),
+      access: localStorage.getItem(TOKEN_KEY),
+      user:   JSON.parse(localStorage.getItem(USER_KEY) || "null"),
     };
   } catch {
-    return { access: null, refresh: null, user: null };
+    return { access: null, user: null };
   }
 }
 
@@ -45,65 +44,48 @@ export function useAuth() {
   const router   = useRouter();
   const timerRef = useRef(null);
 
-  const [user,         setUser]         = useState(null);
-  const [accessToken,  setAccessToken]  = useState(null);
-  const [isLoading,    setIsLoading]    = useState(false);
-  const [isHydrated,   setIsHydrated]   = useState(false);
+  const [user,        setUser]        = useState(null);
+  const [accessToken, setAccessToken] = useState(null);
+  const [isLoading,   setIsLoading]   = useState(false);
+  const [isHydrated,  setIsHydrated]  = useState(false);
 
-  // MAJOR FIX: Use refs for doRefresh and doLogout so they are always current
-  // inside callbacks without creating circular useCallback dependencies.
-  // Previously: scheduleRefresh → doRefresh → scheduleRefresh (circular deps),
-  // and doRefresh called doLogout (plain function) via stale closure.
   const doRefreshRef = useRef(null);
   const doLogoutRef  = useRef(null);
 
-  // scheduleRefresh only needs the ref, never changes identity
   const scheduleRefresh = useCallback((token) => {
     const expiry = tokenExpiry(token);
     if (!expiry) return;
     const delay = expiry - Date.now() - 2 * 60 * 1000; // refresh 2 min before expiry
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (delay <= 0) {
-      doRefreshRef.current?.();
-      return;
-    }
+    if (delay <= 0) { doRefreshRef.current?.(); return; }
     timerRef.current = setTimeout(() => doRefreshRef.current?.(), delay);
-  }, []); // no deps — stable forever
+  }, []);
 
-  // doLogout — defined once, stored in ref
   const doLogout = useCallback(() => {
-    const { refresh } = getStored();
-    if (refresh) {
-      fetch("/api/auth/logout", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ refreshToken: refresh }),
-      }).catch(() => {});
-    }
-    clearTokens();
+    // Tell the server to delete the session and clear the httpOnly cookie.
+    // No body needed — the refresh token travels as a cookie automatically.
+    fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
+    clearSession();
     if (timerRef.current) clearTimeout(timerRef.current);
     setUser(null);
     setAccessToken(null);
     router.push("/login");
   }, [router]);
 
-  // doRefresh — defined once, stored in ref; reads latest state via getStored()
   const doRefresh = useCallback(async () => {
-    const { refresh } = getStored();
-    if (!refresh) {
-      doLogoutRef.current?.();
-      return null;
-    }
     try {
+      // The refresh token is an httpOnly cookie — the browser attaches it
+      // automatically via credentials: "same-origin". No need to read it
+      // from JS or send it in the request body.
       const res = await fetch("/api/auth/refresh", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ refreshToken: refresh }),
+        method:      "POST",
+        credentials: "same-origin",
+        headers:     { "Content-Type": "application/json" },
       });
       if (!res.ok) throw new Error("Refresh failed");
-      const { accessToken: newAccess, refreshToken: newRefresh } = await res.json();
+      const { accessToken: newAccess } = await res.json();
       const { user: storedUser } = getStored();
-      if (storedUser) saveTokens(newAccess, newRefresh, storedUser);
+      if (storedUser) saveSession(newAccess, storedUser);
       setAccessToken(newAccess);
       scheduleRefresh(newAccess);
       return newAccess;
@@ -111,25 +93,23 @@ export function useAuth() {
       doLogoutRef.current?.();
       return null;
     }
-  }, [scheduleRefresh]); // scheduleRefresh is stable, so doRefresh is also stable
+  }, [scheduleRefresh]);
 
-  // Keep refs in sync with latest function versions
   useEffect(() => { doRefreshRef.current = doRefresh; }, [doRefresh]);
   useEffect(() => { doLogoutRef.current  = doLogout;  }, [doLogout]);
 
-  // Hydrate on mount — read localStorage, validate/refresh token
+  // Hydrate on mount
   useEffect(() => {
     const { access, user: storedUser } = getStored();
     if (access && storedUser) {
       const expiry = tokenExpiry(access);
       if (expiry && expiry > Date.now()) {
-        // Token still valid
         setUser(storedUser);
         setAccessToken(access);
         scheduleRefresh(access);
         setIsHydrated(true);
       } else {
-        // Token expired — try to refresh before marking hydrated
+        // Access token expired — attempt silent refresh via the httpOnly cookie
         doRefresh().then((newToken) => {
           if (newToken) {
             const { user: u } = getStored();
@@ -141,22 +121,24 @@ export function useAuth() {
     } else {
       setIsHydrated(true);
     }
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []); // intentionally empty — runs once on mount only
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = useCallback(async (email, password) => {
     setIsLoading(true);
     try {
       const res  = await fetch("/api/auth/login", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ email, password }),
+        method:      "POST",
+        credentials: "same-origin", // receive the httpOnly refresh-token cookie
+        headers:     { "Content-Type": "application/json" },
+        body:        JSON.stringify({ email, password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Login failed");
-      saveTokens(data.accessToken, data.refreshToken, data.user);
+
+      // Store only the access token + user profile in localStorage.
+      // The refresh token was set as an httpOnly cookie by the server.
+      saveSession(data.accessToken, data.user);
       setUser(data.user);
       setAccessToken(data.accessToken);
       scheduleRefresh(data.accessToken);
@@ -169,17 +151,12 @@ export function useAuth() {
     }
   }, [router, scheduleRefresh]);
 
-  // MAJOR FIX: authFetch no longer depends on `accessToken` state directly.
-  // Instead it reads the latest token from the ref so it doesn't go stale
-  // between re-renders and doesn't trigger re-renders of all consumers on
-  // every 15-minute token refresh.
   const accessTokenRef = useRef(accessToken);
   useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
 
   const authFetch = useCallback(async (url, options = {}) => {
     let token = accessTokenRef.current;
 
-    // Proactively refresh if token is expired or about to expire
     if (token) {
       const exp = tokenExpiry(token);
       if (exp && exp <= Date.now()) {
@@ -189,6 +166,7 @@ export function useAuth() {
 
     const makeRequest = (t) => fetch(url, {
       ...options,
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
         ...(options.headers || {}),
@@ -198,29 +176,25 @@ export function useAuth() {
 
     const res = await makeRequest(token);
 
-    // 401 → attempt one refresh then retry
     if (res.status === 401) {
       const newToken = await doRefreshRef.current?.() ?? null;
-      if (!newToken) {
-        doLogoutRef.current?.();
-        throw new Error("Session expired");
-      }
+      if (!newToken) { doLogoutRef.current?.(); throw new Error("Session expired"); }
       return makeRequest(newToken);
     }
 
     return res;
-  }, []); // stable forever — reads token via ref, calls logout/refresh via refs
+  }, []);
 
   return {
     user,
     accessToken,
     isLoading,
     isHydrated,
-    isLoggedIn:  !!user,
-    isAdmin:     user?.role === "ADMIN",
-    isEmployee:  user?.role === "EMPLOYEE",
+    isLoggedIn: !!user,
+    isAdmin:    user?.role === "ADMIN",
+    isEmployee: user?.role === "EMPLOYEE",
     login,
-    logout:      doLogout,
+    logout:     doLogout,
     authFetch,
   };
 }

@@ -41,11 +41,23 @@ function extractBearerToken(authHeader) {
 }
 
 // ── Get current user from forwarded headers (set by middleware) ─
+//
+// Previously used parseInt(userId) which has two problems:
+//   1. parseInt("1.5") === 1 — silently truncates floats.
+//   2. parseInt("abc") === NaN — causes Prisma to throw an unhandled
+//      error that can leak stack traces in responses.
+//
+// Number() + Number.isInteger() rejects both cases explicitly.
 function getCurrentUser(request) {
-  const userId = request.headers.get("x-user-id");
-  if (!userId) throw new ApiError("Unauthenticated", 401);
+  const rawId = request.headers.get("x-user-id");
+  const id    = Number(rawId);
+
+  if (!rawId || !Number.isInteger(id) || id <= 0) {
+    throw new ApiError("Unauthenticated", 401);
+  }
+
   return {
-    id:    parseInt(userId),
+    id,
     role:  request.headers.get("x-user-role"),
     email: request.headers.get("x-user-email"),
     name:  request.headers.get("x-user-name"),

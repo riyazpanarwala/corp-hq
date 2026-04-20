@@ -14,22 +14,13 @@ export async function middleware(request) {
   if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return NextResponse.next();
   if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) return NextResponse.next();
 
-  // MINOR FIX: Previously the token was read from the Authorization header first,
-  // then the cookie. This meant the client-side localStorage JWT (sent via header)
-  // took precedence over the httpOnly cookie set at login — giving XSS-accessible
-  // storage the same authority as the secure cookie.
-  //
-  // New priority order:
-  //   1. httpOnly cookie  (set by login route — XSS-safe)
-  //   2. Authorization header (used by authFetch for API calls from the browser)
-  //
-  // This means SSR page loads are authenticated via the secure cookie, while
-  // client-side API calls still work via the Bearer header from useAuth.
+  // Token priority:
+  //   1. httpOnly access_token cookie (set at login, XSS-safe)
+  //   2. Authorization header (used by authFetch for client-side API calls)
   const cookieToken = request.cookies.get("access_token")?.value ?? null;
   const authHeader  = request.headers.get("Authorization");
   const headerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-
-  const token = cookieToken ?? headerToken ?? null;
+  const token       = cookieToken ?? headerToken ?? null;
 
   if (!token) {
     if (API_RE.test(pathname)) {
@@ -43,6 +34,14 @@ export async function middleware(request) {
   try {
     const { payload } = await jwtVerify(token, ACCESS_SECRET);
 
+    // Validate sub before forwarding it as a trusted header.
+    // payload.sub is a string by JWT spec; reject anything that doesn't
+    // round-trip cleanly to a positive integer.
+    const userId = Number(payload.sub);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      throw new Error("Invalid user ID in token");
+    }
+
     // RBAC
     if (ADMIN_PATHS.some(p => pathname.startsWith(p)) && payload.role !== "ADMIN") {
       if (API_RE.test(pathname)) {
@@ -51,9 +50,9 @@ export async function middleware(request) {
       return NextResponse.redirect(new URL("/employee/dashboard", request.url));
     }
 
-    // Forward user info to API route handlers via headers
+    // Forward validated user info to API route handlers via headers
     const headers = new Headers(request.headers);
-    headers.set("x-user-id",    String(payload.sub));
+    headers.set("x-user-id",    String(userId));   // forwarded as validated integer string
     headers.set("x-user-role",  payload.role);
     headers.set("x-user-email", payload.email);
     headers.set("x-user-name",  payload.name);
