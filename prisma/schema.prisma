@@ -1,0 +1,164 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  EMPLOYEE
+}
+
+enum LeaveType {
+  CL
+  SL
+  PL
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  ON_LEAVE
+  HOLIDAY
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  name         String
+  passwordHash String   @map("password_hash")
+  role         Role     @default(EMPLOYEE)
+  department   String
+  designation  String?
+  avatarUrl    String?  @map("avatar_url")
+  timezone     String   @default("UTC")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  attendance     Attendance[]
+  leaveRequests  LeaveRequest[] @relation("EmployeeLeaves")
+  reviewedLeaves LeaveRequest[] @relation("ReviewedByAdmin")
+  leaveBalance   LeaveBalance?
+  sessions       Session[]
+
+  @@index([email])
+  @@index([role])
+  @@index([department])
+  @@map("users")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       Int      @map("user_id")
+  refreshToken String   @unique @map("refresh_token")
+  expiresAt    DateTime @map("expires_at")
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshToken])
+  @@map("sessions")
+}
+
+model Attendance {
+  id             Int              @id @default(autoincrement())
+  userId         Int              @map("user_id")
+  date           DateTime         @db.Date
+  checkIn        DateTime?        @map("check_in")
+  checkOut       DateTime?        @map("check_out")
+  checkInTz      String?          @map("check_in_tz")
+  checkOutTz     String?          @map("check_out_tz")
+  hoursWorked    Decimal?         @map("hours_worked") @db.Decimal(5, 2)
+  isLate         Boolean          @default(false) @map("is_late")
+  lateMinutes    Int              @default(0) @map("late_minutes")
+  isHalfDay      Boolean          @default(false) @map("is_half_day")
+  autoCheckedOut Boolean          @default(false) @map("auto_checked_out")
+  status         AttendanceStatus @default(PRESENT)
+  notes          String?
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([date])
+  @@index([userId, date])
+  @@index([isLate])
+  @@map("attendance")
+}
+
+model LeaveBalance {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique @map("user_id")
+  year      Int
+  clTotal   Int      @default(12) @map("cl_total")
+  clUsed    Int      @default(0)  @map("cl_used")
+  clPending Int      @default(0)  @map("cl_pending")
+  slTotal   Int      @default(10) @map("sl_total")
+  slUsed    Int      @default(0)  @map("sl_used")
+  slPending Int      @default(0)  @map("sl_pending")
+  plTotal   Int      @default(15) @map("pl_total")
+  plUsed    Int      @default(0)  @map("pl_used")
+  plPending Int      @default(0)  @map("pl_pending")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, year])
+  @@map("leave_balances")
+}
+
+model LeaveRequest {
+  id           Int         @id @default(autoincrement())
+  userId       Int         @map("user_id")
+  type         LeaveType
+  startDate    DateTime    @map("start_date") @db.Date
+  endDate      DateTime    @map("end_date") @db.Date
+  days         Int
+  reason       String
+  status       LeaveStatus @default(PENDING)
+  reviewedById Int?        @map("reviewed_by_id")
+  reviewedAt   DateTime?   @map("reviewed_at")
+  reviewNote   String?     @map("review_note")
+  appliedOn    DateTime    @default(now()) @map("applied_on")
+  cancelledAt  DateTime?   @map("cancelled_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  employee   User  @relation("EmployeeLeaves",  fields: [userId],       references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("ReviewedByAdmin", fields: [reviewedById], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([userId, status])
+  @@map("leave_requests")
+}
+
+model AttendanceConfig {
+  id                Int      @id @default(1)
+  workStartHour     Int      @default(9)    @map("work_start_hour")
+  workStartMinute   Int      @default(0)    @map("work_start_minute")
+  lateThresholdMin  Int      @default(30)   @map("late_threshold_min")
+  halfDayHours      Decimal  @default(4.0)  @map("half_day_hours") @db.Decimal(4, 1)
+  fullDayHours      Decimal  @default(8.0)  @map("full_day_hours") @db.Decimal(4, 1)
+  autoCheckoutHours Int      @default(10)   @map("auto_checkout_hours")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("attendance_config")
+}
