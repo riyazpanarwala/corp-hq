@@ -11,54 +11,45 @@ function AdminGuard({ children }) {
   const router = useRouter();
 
   useEffect(() => {
-    if (!isHydrated) return; // ← wait for hydration before any redirect
-    if (!isLoggedIn) {
-      router.replace("/login");
-      return;
-    }
-    if (!isAdmin) {
-      router.replace("/employee/dashboard");
-    }
+    // CRITICAL FIX: Do NOT redirect until hydration is complete.
+    // Previously this ran with stale (false) values causing redirect on first load.
+    if (!isHydrated) return;
+    if (!isLoggedIn) { router.replace("/login"); return; }
+    if (!isAdmin)    { router.replace("/employee/dashboard"); }
   }, [isHydrated, isLoggedIn, isAdmin, router]);
 
+  // Still reading localStorage / awaiting token refresh — show spinner only, no redirect
   if (!isHydrated) {
-    // Still reading localStorage / refreshing token — just show spinner, no redirect
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "var(--bg)",
-        }}
-      >
+      <div style={{
+        minHeight: "100vh", display: "flex",
+        alignItems: "center", justifyContent: "center", background: "var(--bg)",
+      }}>
         <Spinner size={36} />
       </div>
     );
   }
 
-  if (!isLoggedIn || !isAdmin) return null; // redirect in flight
+  // Redirect is in-flight (useEffect queued), render nothing to avoid flash
+  if (!isLoggedIn || !isAdmin) return null;
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
       <Sidebar />
-      <main
-        style={{
-          flex: 1,
-          padding: 28,
-          overflowY: "auto",
-          minWidth: 0,
-          background: "var(--bg)",
-        }}
-      >
+      <main style={{
+        flex: 1, padding: 28, overflowY: "auto",
+        minWidth: 0, background: "var(--bg)",
+      }}>
         <div className="fade-in">{children}</div>
       </main>
     </div>
   );
 }
 
+// CRITICAL FIX: Removed the extra <AuthProvider> wrapper that was here before.
+// root layout.js (src/app/layout.js) already wraps the entire app in <AuthProvider>.
+// Adding a second one here created a fresh, unauthenticated context — causing the
+// guard to see isLoggedIn=false on first load and redirect back to /login.
 export default function AdminLayout({ children }) {
-  // ← No <AuthProvider> wrapper here — root layout.js already provides it
   return <AdminGuard>{children}</AdminGuard>;
 }
