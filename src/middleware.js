@@ -1,6 +1,6 @@
 // src/middleware.js
 import { NextResponse } from "next/server";
-import { jwtVerify } from "jose";
+import { jwtVerify }    from "jose";
 
 const ACCESS_SECRET = new TextEncoder().encode(process.env.JWT_ACCESS_SECRET);
 
@@ -14,12 +14,22 @@ export async function middleware(request) {
   if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return NextResponse.next();
   if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) return NextResponse.next();
 
-  // Extract token from header or cookie
-  const authHeader = request.headers.get("Authorization");
-  const token =
-    (authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null) ??
-    request.cookies.get("access_token")?.value ??
-    null;
+  // MINOR FIX: Previously the token was read from the Authorization header first,
+  // then the cookie. This meant the client-side localStorage JWT (sent via header)
+  // took precedence over the httpOnly cookie set at login — giving XSS-accessible
+  // storage the same authority as the secure cookie.
+  //
+  // New priority order:
+  //   1. httpOnly cookie  (set by login route — XSS-safe)
+  //   2. Authorization header (used by authFetch for API calls from the browser)
+  //
+  // This means SSR page loads are authenticated via the secure cookie, while
+  // client-side API calls still work via the Bearer header from useAuth.
+  const cookieToken = request.cookies.get("access_token")?.value ?? null;
+  const authHeader  = request.headers.get("Authorization");
+  const headerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+  const token = cookieToken ?? headerToken ?? null;
 
   if (!token) {
     if (API_RE.test(pathname)) {

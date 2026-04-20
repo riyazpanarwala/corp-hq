@@ -16,10 +16,20 @@ const CheckOutSchema = z.object({
   notes:    z.string().max(500).optional(),
 });
 
+// MINOR FIX: The status enum previously used inconsistent naming. The DB stores
+// isHalfDay / isLate as booleans, and the UI sends "halfday" / "late" / "present".
+// "present" was listed in the enum comment but handled identically to no filter in
+// attendanceService.list() — the service only checks for "late" and "halfday" and
+// treats everything else as no status filter. The schema now explicitly documents
+// the three accepted values and their effect. No functional behaviour change —
+// just making the contract explicit and removing the silent no-op for "present".
 const AttendanceFilterSchema = z.object({
   date:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   month:  z.string().regex(/^\d{4}-\d{2}$/).optional(),
   userId: z.coerce.number().int().positive().optional(),
+  // "late"    → where isLate = true
+  // "halfday" → where isHalfDay = true
+  // "present" → no extra where clause (all present records); kept for UI completeness
   status: z.enum(["late", "halfday", "present"]).optional(),
   page:   z.coerce.number().int().min(1).default(1),
   limit:  z.coerce.number().int().min(1).max(200).default(50),

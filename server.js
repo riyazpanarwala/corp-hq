@@ -4,7 +4,6 @@
 
 const { createServer } = require("http");
 const { execSync }     = require("child_process");
-const path             = require("path");
 const next             = require("next");
 
 const dev  = process.env.NODE_ENV !== "production";
@@ -19,8 +18,26 @@ function runMigrations() {
     console.log("✅  Migrations up to date.");
   } catch (err) {
     if (dev) {
-      console.warn("⚠️   migrate deploy failed — falling back to db push (dev only)");
-      execSync("npx prisma db push --accept-data-loss", { stdio: "inherit" });
+      // MINOR FIX: Previously fell back to `db push --accept-data-loss`
+      // unconditionally in dev, which can silently DROP columns/tables on
+      // schema conflicts. Now this fallback requires an explicit opt-in via
+      // ALLOW_DB_PUSH=true so developers are never surprised by data loss.
+      if (process.env.ALLOW_DB_PUSH === "true") {
+        console.warn(
+          "⚠️   migrate deploy failed — falling back to db push (ALLOW_DB_PUSH=true).\n" +
+          "    WARNING: This may DROP columns or tables that conflict with the schema.\n" +
+          "    Never use ALLOW_DB_PUSH=true if you have data you care about.",
+        );
+        execSync("npx prisma db push --accept-data-loss", { stdio: "inherit" });
+      } else {
+        console.error(
+          "❌  Migration failed in dev mode.\n" +
+          "    To fall back to db push (DANGEROUS — may drop data), set ALLOW_DB_PUSH=true.\n" +
+          "    To create a new migration, run: npm run db:migrate\n" +
+          "    To check migration status, run: npm run db:status",
+        );
+        process.exit(1);
+      }
     } else {
       console.error("❌  Migration failed. Exiting.");
       process.exit(1);
