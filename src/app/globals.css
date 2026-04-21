@@ -1,9 +1,9 @@
-/* Tailwind CSS v4: replace the three @tailwind directives with a single @import.
-   All layer/theme/utilities are included automatically. */
+/* Tailwind CSS v4: single @import replaces the old @tailwind base/components/utilities.
+   NOTE: Google Fonts is loaded via <link> in src/app/layout.js instead of @import here.
+   Tailwind v4's PostCSS plugin inlines thousands of CSS rules when it processes
+   @import "tailwindcss", which causes any subsequent @import url(...) to violate the
+   CSS spec ("@import must precede all rules"). The <link> tag in layout.js avoids this. */
 @import "tailwindcss";
-
-/* Custom font imports */
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Syne:wght@600;700;800&display=swap');
 
 /*
  * Tailwind CSS v4: theme customisation moves from tailwind.config.js into a
@@ -86,12 +86,6 @@ button        { cursor: pointer; font-family: 'DM Sans', sans-serif; }
   100% { background-position: -200% 0 }
 }
 
-/*
- * Tailwind v4: @layer utilities is still supported for custom utility classes.
- * The utility classes below (fade-up, shimmer, truncate, stagger) are used
- * throughout the app via className="...".  No change needed here — @layer
- * utilities works the same as in v3.
- */
 @layer utilities {
   .fade-up  { animation: fadeUp  .3s  ease both }
   .fade-in  { animation: fadeIn  .25s ease both }
