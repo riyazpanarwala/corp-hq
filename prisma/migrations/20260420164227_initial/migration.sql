@@ -24,7 +24,6 @@ CREATE TABLE "users" (
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "users_pkey" PRIMARY KEY ("id")
 );
 
@@ -37,7 +36,6 @@ CREATE TABLE "sessions" (
     "ip_address" TEXT,
     "user_agent" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
     CONSTRAINT "sessions_pkey" PRIMARY KEY ("id")
 );
 
@@ -59,7 +57,6 @@ CREATE TABLE "attendance" (
     "notes" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "attendance_pkey" PRIMARY KEY ("id")
 );
 
@@ -79,7 +76,6 @@ CREATE TABLE "leave_balances" (
     "pl_pending" INTEGER NOT NULL DEFAULT 0,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "leave_balances_pkey" PRIMARY KEY ("id")
 );
 
@@ -99,7 +95,6 @@ CREATE TABLE "leave_requests" (
     "applied_on" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "cancelled_at" TIMESTAMP(3),
     "updated_at" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "leave_requests_pkey" PRIMARY KEY ("id")
 );
 
@@ -113,72 +108,39 @@ CREATE TABLE "attendance_config" (
     "full_day_hours" DECIMAL(4,1) NOT NULL DEFAULT 8.0,
     "auto_checkout_hours" INTEGER NOT NULL DEFAULT 10,
     "updated_at" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "attendance_config_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
 CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
-
--- CreateIndex
 CREATE INDEX "users_email_idx" ON "users"("email");
-
--- CreateIndex
 CREATE INDEX "users_role_idx" ON "users"("role");
-
--- CreateIndex
 CREATE INDEX "users_department_idx" ON "users"("department");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "sessions_refresh_token_key" ON "sessions"("refresh_token");
-
--- CreateIndex
 CREATE INDEX "sessions_user_id_idx" ON "sessions"("user_id");
-
--- CreateIndex
 CREATE INDEX "sessions_refresh_token_idx" ON "sessions"("refresh_token");
 
 -- CreateIndex
 CREATE INDEX "attendance_user_id_idx" ON "attendance"("user_id");
-
--- CreateIndex
 CREATE INDEX "attendance_date_idx" ON "attendance"("date");
-
--- CreateIndex
 CREATE INDEX "attendance_user_id_date_idx" ON "attendance"("user_id", "date");
-
--- CreateIndex
 CREATE INDEX "attendance_is_late_idx" ON "attendance"("is_late");
-
--- CreateIndex
 CREATE UNIQUE INDEX "attendance_user_id_date_key" ON "attendance"("user_id", "date");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "leave_balances_user_id_key" ON "leave_balances"("user_id");
-
--- CreateIndex
 CREATE INDEX "leave_balances_user_id_year_idx" ON "leave_balances"("user_id", "year");
 
 -- CreateIndex
 CREATE INDEX "leave_requests_user_id_idx" ON "leave_requests"("user_id");
-
--- CreateIndex
 CREATE INDEX "leave_requests_status_idx" ON "leave_requests"("status");
-
--- CreateIndex
 CREATE INDEX "leave_requests_user_id_status_idx" ON "leave_requests"("user_id", "status");
 
 -- AddForeignKey
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "attendance" ADD CONSTRAINT "attendance_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "leave_balances" ADD CONSTRAINT "leave_balances_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "leave_requests" ADD CONSTRAINT "leave_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "leave_requests" ADD CONSTRAINT "leave_requests_reviewed_by_id_fkey" FOREIGN KEY ("reviewed_by_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;

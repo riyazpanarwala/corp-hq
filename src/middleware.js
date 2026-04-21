@@ -1,4 +1,5 @@
 // src/middleware.js
+// jose v6: jwtVerify import and usage are identical to v5. No changes needed.
 import { NextResponse } from "next/server";
 import { jwtVerify }    from "jose";
 

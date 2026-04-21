@@ -42,7 +42,6 @@ export function Sidebar() {
       position: "sticky", top: 0, flexShrink: 0, zIndex: 100,
       transition: "width .25s cubic-bezier(.4,0,.2,1)",
     }}>
-      {/* Logo */}
       <div style={{
         padding: collapsed ? "18px 0" : "18px 16px",
         borderBottom: "1px solid var(--border)",
@@ -63,9 +62,7 @@ export function Sidebar() {
             </span>
           )}
         </div>
-        {!collapsed && (
-          <CollapseBtn icon="◀" onClick={() => setCollapsed(true)} />
-        )}
+        {!collapsed && <CollapseBtn icon="◀" onClick={() => setCollapsed(true)} />}
       </div>
 
       {collapsed && (
@@ -74,7 +71,6 @@ export function Sidebar() {
         </div>
       )}
 
-      {/* Role badge */}
       {!collapsed && (
         <div style={{ padding: "10px 16px 4px" }}>
           <span style={{
@@ -88,7 +84,6 @@ export function Sidebar() {
         </div>
       )}
 
-      {/* Nav */}
       <nav style={{ flex: 1, padding: "8px", display: "flex", flexDirection: "column", gap: 2, overflowY: "auto" }}>
         {nav.map(item => {
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
@@ -118,7 +113,6 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* User card */}
       <div style={{ padding: "12px 8px", borderTop: "1px solid var(--border)" }}>
         {collapsed ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>

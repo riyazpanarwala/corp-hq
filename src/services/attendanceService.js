@@ -4,7 +4,6 @@ const { ApiError }     = require("../lib/auth");
 const { emitToAdmins } = require("../lib/socket");
 
 const attendanceService = {
-  // ── helpers ────────────────────────────────────────────────
   todayDate() {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -32,7 +31,6 @@ const attendanceService = {
     return { isLate, lateMinutes };
   },
 
-  // ── checkIn ────────────────────────────────────────────────
   async checkIn(userId, { timezone, notes }) {
     const today  = this.todayDate();
     const cfg    = await this.getConfig();
@@ -71,7 +69,6 @@ const attendanceService = {
     return record;
   },
 
-  // ── checkOut ───────────────────────────────────────────────
   async checkOut(userId, { timezone, notes }) {
     const today  = this.todayDate();
     const cfg    = await this.getConfig();
@@ -107,14 +104,12 @@ const attendanceService = {
     return updated;
   },
 
-  // ── getTodayRecord ─────────────────────────────────────────
   async getTodayRecord(userId) {
     return db.attendance.findUnique({
       where: { userId_date: { userId, date: this.todayDate() } },
     });
   },
 
-  // ── list ───────────────────────────────────────────────────
   async list({ userId, date, month, status, page = 1, limit = 50 }) {
     const where = {};
     if (userId) where.userId = userId;
@@ -149,18 +144,11 @@ const attendanceService = {
     };
   },
 
-  // ── autoCheckoutOverdue ────────────────────────────────────
   async autoCheckoutOverdue() {
     const cfg    = await this.getConfig();
     const now    = new Date();
     const cutoff = new Date(now.getTime() - cfg.autoCheckoutHours * 3_600_000);
-
-    // Explicitly bound the query to today only.  Previously the date
-    // filter came from todayDate() but the cutoff could reach into
-    // yesterday when autoCheckoutHours is large (e.g. 10h) and the cron
-    // runs just after midnight.  Using a tight [startOfDay, now] range
-    // ensures we never touch records from a different calendar day.
-    const startOfToday = this.todayDate(); // midnight today
+    const startOfToday = this.todayDate();
 
     const overdue = await db.attendance.findMany({
       where: {
@@ -187,7 +175,6 @@ const attendanceService = {
           },
         })
         .catch((e) =>
-          // Log instead of silently swallowing so ops can spot problems
           console.error(`[autoCheckout] Failed to update record ${rec.id}:`, e.message),
         );
       count++;
@@ -195,7 +182,6 @@ const attendanceService = {
     return count;
   },
 
-  // ── monthlySummary ─────────────────────────────────────────
   async monthlySummary(year, month) {
     const start = new Date(year, month - 1, 1);
     const end   = new Date(year, month, 1);

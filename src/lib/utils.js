@@ -1,19 +1,12 @@
 // src/lib/utils.js  — browser-safe, no server imports
 
-// ── Date / time ───────────────────────────────────────────────
-
 function formatTime(iso) {
   if (!iso) return "—";
   return new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 }
 
-// Fix: date-only strings like "2026-04-21" are parsed as UTC midnight by
-// the Date constructor.  Calling toLocaleDateString() then shifts the date
-// one day earlier for users west of UTC (classic off-by-one-day bug).
-// We extract year/month/day directly and construct a LOCAL date instead.
 function formatDate(str) {
   if (!str) return "—";
-  // Handle both ISO datetime strings and plain date strings
   const dateStr = String(str).split("T")[0];
   const [y, m, d] = dateStr.split("-").map(Number);
   if (!y || !m || !d) return "—";
@@ -87,17 +80,8 @@ function downloadCSV(rows, filename) {
   URL.revokeObjectURL(url);
 }
 
-// ── Employee avatar helpers ────────────────────────────────────
-//
-// Previously copy-pasted across 5+ admin pages and ui/index.js.
-// Single source of truth here; import wherever needed.
-
 const EMP_COLORS = ["#4f8ef7", "#7c5cfc", "#22d3a5", "#f5a623", "#f04444"];
 
-// Derive a stable color from the employee's name string so the same
-// person always gets the same color regardless of their numeric DB ID.
-// Previously used `id % COLORS.length` which caused employees 1, 6, 11…
-// to share the same color as the team grew.
 function empColor(name, id) {
   if (name) {
     let hash = 0;
@@ -106,7 +90,6 @@ function empColor(name, id) {
     }
     return EMP_COLORS[hash % EMP_COLORS.length];
   }
-  // Fall back to id-based if name is unavailable
   return EMP_COLORS[(id || 0) % EMP_COLORS.length];
 }
 
@@ -118,8 +101,6 @@ function empInitials(name) {
     .join("")
     .toUpperCase() || "??";
 }
-
-// ── Leave config ──────────────────────────────────────────────
 
 const LEAVE_CONFIG = {
   CL: { label: "Casual Leave", emoji: "🏖️", color: "var(--accent)"  },

@@ -1,21 +1,11 @@
 // src/app/api/auth/login/route.js
 import { db } from "@/lib/db";
-import {
-  signAccessToken,
-  signRefreshToken,
-  refreshTokenExpiry,
-  handleApiError,
-} from "@/lib/auth";
+import { signAccessToken, signRefreshToken, refreshTokenExpiry, handleApiError } from "@/lib/auth";
 import { LoginSchema } from "@/lib/validations";
-import bcrypt          from "bcryptjs";
-import { cookies }     from "next/headers";
+import bcrypt      from "bcryptjs";
+import { cookies } from "next/headers";
 
-// A real bcrypt hash of "invalid-user-dummy-password".
-// Used so the bcrypt.compare call always runs regardless of whether the
-// user exists, preventing a timing oracle that would let an attacker
-// enumerate valid email addresses by measuring response latency.
-const DUMMY_HASH =
-  "$2b$12$invalidsaltXXXXXXXXXXXXXXinvalidhashXXXXXXXXXXXXXXX";
+const DUMMY_HASH = "$2b$12$invalidsaltXXXXXXXXXXXXXXinvalidhashXXXXXXXXXXXXXXX";
 
 export async function POST(request) {
   try {
@@ -24,19 +14,10 @@ export async function POST(request) {
 
     const user = await db.user.findUnique({
       where:  { email: email.toLowerCase().trim(), isActive: true },
-      select: {
-        id: true, email: true, name: true, role: true,
-        department: true, designation: true, timezone: true,
-        avatarUrl: true, passwordHash: true,
-      },
+      select: { id: true, email: true, name: true, role: true, department: true, designation: true, timezone: true, avatarUrl: true, passwordHash: true },
     });
 
-    // Always run bcrypt — even when the user doesn't exist — so that the
-    // response time is identical for unknown-email vs wrong-password cases.
-    const passwordMatch = await bcrypt.compare(
-      password,
-      user?.passwordHash ?? DUMMY_HASH,
-    );
+    const passwordMatch = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
 
     if (!user || !passwordMatch) {
       return Response.json({ error: "Invalid email or password" }, { status: 401 });
@@ -44,9 +25,7 @@ export async function POST(request) {
 
     const { passwordHash, ...safeUser } = user;
 
-    const accessToken  = await signAccessToken({
-      sub: String(user.id), email: user.email, role: user.role, name: user.name,
-    });
+    const accessToken  = await signAccessToken({ sub: String(user.id), email: user.email, role: user.role, name: user.name });
     const refreshToken = await signRefreshToken(user.id);
 
     await db.session.create({
@@ -61,33 +40,19 @@ export async function POST(request) {
 
     const cookieStore = await cookies();
 
-    // Access token cookie — short-lived, used for SSR page authentication
     cookieStore.set("access_token", accessToken, {
-      httpOnly: true,
-      secure:   process.env.NODE_ENV === "production",
-      path:     "/",
-      sameSite: "strict",   // upgraded from "lax" — prevents CSRF on all cross-site requests
-      maxAge:   15 * 60,    // 15 minutes, mirrors JWT expiry
+      httpOnly: true, secure: process.env.NODE_ENV === "production",
+      path: "/", sameSite: "strict", maxAge: 15 * 60,
     });
 
-    // Refresh token cookie — long-lived, httpOnly, scoped to the refresh
-    // endpoint only. It is never readable by JavaScript on the page.
-    // Not returned in the response body for the same reason.
     cookieStore.set("refresh_token", refreshToken, {
-      httpOnly: true,
-      secure:   process.env.NODE_ENV === "production",
-      path:     "/api/auth",   // only sent to /api/auth/* — not every request
-      sameSite: "strict",
-      maxAge:   7 * 24 * 60 * 60,  // 7 days, mirrors session expiry
+      httpOnly: true, secure: process.env.NODE_ENV === "production",
+      path: "/api/auth", sameSite: "strict", maxAge: 7 * 24 * 60 * 60,
     });
 
-    // Return the access token in the body so the client can store it
-    // in memory (via useAuth) for Authorization header use. The refresh
-    // token is intentionally omitted — it lives in the cookie only.
     return Response.json({ accessToken, user: safeUser });
   } catch (err) {
-    if (err?.errors)
-      return Response.json({ error: err.errors[0].message }, { status: 422 });
+    if (err?.errors) return Response.json({ error: err.errors[0].message }, { status: 422 });
     return handleApiError(err);
   }
 }

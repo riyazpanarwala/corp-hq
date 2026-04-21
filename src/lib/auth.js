@@ -1,4 +1,6 @@
 // src/lib/auth.js
+// jose v6: SignJWT, jwtVerify, and the TextEncoder-based secret pattern are all
+// unchanged from v5. No code modifications needed for the jose 5→6 upgrade.
 const { SignJWT, jwtVerify } = require("jose");
 
 const ACCESS_SECRET  = new TextEncoder().encode(process.env.JWT_ACCESS_SECRET);

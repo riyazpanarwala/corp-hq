@@ -19,19 +19,11 @@ function initSocket(httpServer) {
   // JWT middleware
   io.use(async (socket, next) => {
     try {
-      // MAJOR FIX: The old code did:
-      //   extractBearerToken(raw || ("Bearer " + raw))
-      // If `raw` was already "Bearer <token>", the fallback produced
-      // "Bearer Bearer <token>" — extractBearerToken would then return null
-      // and every socket connection would fail with "Unauthorized".
-      //
-      // Now we normalise the raw value directly without calling extractBearerToken:
       const raw = socket.handshake.auth?.token
                || socket.handshake.headers?.authorization;
 
       if (!raw) throw new Error("No token provided");
 
-      // Strip "Bearer " prefix if present, otherwise use the raw value as-is
       const token = raw.startsWith("Bearer ") ? raw.slice(7) : raw;
 
       if (!token) throw new Error("Empty token");

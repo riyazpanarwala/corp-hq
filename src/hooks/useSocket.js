@@ -4,13 +4,8 @@ import { useEffect, useRef, useCallback } from "react";
 import { io } from "socket.io-client";
 
 export function useSocket(accessToken) {
-  const socketRef    = useRef(null);
-
-  // MAJOR FIX: Track active subscriptions so they can be re-applied after reconnect.
-  // Previously, `on()` captured socketRef.current at call time. After a disconnect
-  // and reconnect socketRef.current pointed to a new socket instance, but all
-  // existing listeners were still bound to the old dead socket.
-  const handlersRef  = useRef(new Map()); // event → Set<handler>
+  const socketRef   = useRef(null);
+  const handlersRef = useRef(new Map());
 
   useEffect(() => {
     if (!accessToken) return;
@@ -25,7 +20,6 @@ export function useSocket(accessToken) {
 
     socket.on("connect", () => {
       console.log("[Socket] connected:", socket.id);
-      // Re-apply all active subscriptions on every (re)connect
       handlersRef.current.forEach((handlers, event) => {
         handlers.forEach(handler => socket.on(event, handler));
       });
@@ -43,16 +37,11 @@ export function useSocket(accessToken) {
   }, [accessToken]);
 
   const on = useCallback((event, handler) => {
-    // Register in the persistent map so reconnects re-apply it
     if (!handlersRef.current.has(event)) {
       handlersRef.current.set(event, new Set());
     }
     handlersRef.current.get(event).add(handler);
-
-    // Also subscribe on the current socket if it exists and is connected
     socketRef.current?.on(event, handler);
-
-    // Return an unsubscribe function
     return () => {
       handlersRef.current.get(event)?.delete(handler);
       socketRef.current?.off(event, handler);

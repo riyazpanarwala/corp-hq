@@ -364,7 +364,6 @@ export function Skeleton({ width = "100%", height = 20, borderRadius = 8 }) {
 }
 
 // ─── EmpCell ──────────────────────────────────────────────────
-// Uses shared empColor/empInitials from utils — no more local duplication.
 export function EmpCell({ emp, sub }) {
   if (!emp) return <span style={{ color: "var(--text3)" }}>—</span>;
   const color    = empColor(emp.name, emp.id);

@@ -75,7 +75,6 @@ export default function EmployeeLeavesPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Toast */}
       {toast && (
         <div style={{
           position: "fixed", bottom: 24, right: 24, zIndex: 9999,
@@ -92,7 +91,6 @@ export default function EmployeeLeavesPage() {
         action={<Btn onClick={() => setModal(true)}>+ Apply Leave</Btn>}
       />
 
-      {/* Balance cards */}
       {loading ? (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14 }}>
           {[...Array(3)].map((_,i) => <Skeleton key={i} height={140} />)}
@@ -142,7 +140,6 @@ export default function EmployeeLeavesPage() {
   );
 }
 
-// ── Apply Leave Modal ─────────────────────────────────────────
 function ApplyLeaveModal({ balance, onClose, onSubmit }) {
   const today = new Date().toISOString().split("T")[0];
   const [form,    setForm]    = useState({ type: "CL", startDate: today, endDate: today, reason: "" });
@@ -155,7 +152,7 @@ function ApplyLeaveModal({ balance, onClose, onSubmit }) {
   const handleSubmit = async () => {
     setError("");
     if (!form.reason.trim() || form.reason.length < 5) { setError("Reason must be at least 5 characters."); return; }
-    if (days <= 0)   { setError("End date must be on or after start date."); return; }
+    if (days <= 0)    { setError("End date must be on or after start date."); return; }
     if (days > avail) { setError(`Only ${avail} day${avail!==1?"s":""} available for ${form.type}.`); return; }
     setLoading(true);
     const result = await onSubmit(form);

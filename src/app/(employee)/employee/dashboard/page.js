@@ -7,10 +7,6 @@ import { formatTime, formatDate, formatHours, resolveAttStatus, LEAVE_CONFIG } f
 
 export default function EmployeeDashboardPage() {
   const { user, authFetch, socketOn } = useAuthContext();
-  // todayRec: null = definitively no record (after fetch), undefined = still loading
-  // Previously this ambiguity allowed the check-in button to appear before the
-  // API response arrived, risking a duplicate check-in on fast clicks.
-  // Now the button is also gated on `!loading`.
   const [todayRec, setTodayRec] = useState(undefined);
   const [monthAtt, setMonthAtt] = useState([]);
   const [balance,  setBalance]  = useState(null);
@@ -19,7 +15,6 @@ export default function EmployeeDashboardPage() {
   const [loading,  setLoading]  = useState(true);
   const [checking, setChecking] = useState(false);
   const [toast,    setToast]    = useState(null);
-
   const [mounted,      setMounted]      = useState(false);
   const [currentDate,  setCurrentDate]  = useState("");
   const [greetingText, setGreetingText] = useState("");
@@ -42,7 +37,7 @@ export default function EmployeeDashboardPage() {
       const [today, monthData, balData, lvData] = await Promise.all([
         todayRes.json(), monthRes.json(), balRes.json(), lvRes.json(),
       ]);
-      setTodayRec(today.record ?? null);  // explicitly null when absent
+      setTodayRec(today.record ?? null);
       setMonthAtt(monthData.records || []);
       setBalance(balData.balance);
       setMyLeaves(lvData.leaves || []);
@@ -57,9 +52,7 @@ export default function EmployeeDashboardPage() {
 
   useEffect(() => {
     setMounted(true);
-    setCurrentDate(new Date().toLocaleDateString("en-US", {
-      weekday: "long", month: "long", day: "numeric", year: "numeric",
-    }));
+    setCurrentDate(new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }));
     const hour = new Date().getHours();
     setGreetingText(hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening");
   }, []);
@@ -80,9 +73,7 @@ export default function EmployeeDashboardPage() {
   const handleCheckIn = async () => {
     setChecking(true);
     const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const res = await authFetch("/api/attendance", {
-      method: "POST", body: JSON.stringify({ timezone: tz }),
-    });
+    const res = await authFetch("/api/attendance", { method: "POST", body: JSON.stringify({ timezone: tz }) });
     const data = await res.json();
     if (res.ok) {
       showToast(data.isLate ? "Checked in — marked Late ⚠️" : "Checked in successfully ✅", data.isLate ? "warning" : "success");
@@ -96,9 +87,7 @@ export default function EmployeeDashboardPage() {
   const handleCheckOut = async () => {
     setChecking(true);
     const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const res = await authFetch("/api/attendance/checkout", {
-      method: "PATCH", body: JSON.stringify({ timezone: tz }),
-    });
+    const res = await authFetch("/api/attendance/checkout", { method: "PATCH", body: JSON.stringify({ timezone: tz }) });
     if (res.ok) {
       showToast("Checked out — see you tomorrow 👋", "success");
       fetchAll();
@@ -133,11 +122,7 @@ export default function EmployeeDashboardPage() {
   const avail = (key) => {
     if (!balance) return 0;
     const k = key.toLowerCase();
-    return Math.max(0,
-      (balance[`${k}Total`]   || 0) -
-      (balance[`${k}Used`]    || 0) -
-      (balance[`${k}Pending`] || 0),
-    );
+    return Math.max(0, (balance[`${k}Total`] || 0) - (balance[`${k}Used`] || 0) - (balance[`${k}Pending`] || 0));
   };
 
   return (
@@ -159,21 +144,14 @@ export default function EmployeeDashboardPage() {
         <p style={{ color: "var(--text2)", fontSize: 14, marginTop: 3 }}>{currentDate}</p>
       </div>
 
-      {/* Check-in widget */}
       <Card style={{ background: "linear-gradient(135deg,rgba(79,142,247,.07),rgba(124,92,252,.07))", border: "1px solid rgba(79,142,247,.18)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 14 }}>
           <div>
-            <div style={{ fontSize: 12, color: "var(--text2)", marginBottom: 4, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600 }}>
-              Today's Attendance
-            </div>
+            <div style={{ fontSize: 12, color: "var(--text2)", marginBottom: 4, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600 }}>Today's Attendance</div>
             <div style={{ fontFamily: "Syne, sans-serif", fontSize: 22, fontWeight: 800 }}>
               {isCheckedOut ? "✅ Completed" : isCheckedIn ? "🟢 In Office" : "⚪ Not Checked In"}
             </div>
-            {todayRec?.isLate && (
-              <div style={{ fontSize: 12, color: "var(--warning)", marginTop: 5 }}>
-                ⚠️ Arrived {todayRec.lateMinutes} min late
-              </div>
-            )}
+            {todayRec?.isLate && <div style={{ fontSize: 12, color: "var(--warning)", marginTop: 5 }}>⚠️ Arrived {todayRec.lateMinutes} min late</div>}
           </div>
           <LiveClock />
         </div>
@@ -184,10 +162,7 @@ export default function EmployeeDashboardPage() {
             { icon: "🕔", label: "Check Out",   value: formatTime(todayRec?.checkOut) },
             { icon: "⏱️", label: "Hours Today", value: isCheckedIn && elapsed != null ? formatHours(elapsed) : formatHours(todayRec?.hoursWorked), highlight: !!isCheckedIn },
           ].map(c => (
-            <div key={c.label} style={{
-              background: "var(--surface2)", borderRadius: "var(--radius-md)", padding: 14, textAlign: "center",
-              border: c.highlight ? "1px solid rgba(79,142,247,.3)" : "1px solid transparent",
-            }}>
+            <div key={c.label} style={{ background: "var(--surface2)", borderRadius: "var(--radius-md)", padding: 14, textAlign: "center", border: c.highlight ? "1px solid rgba(79,142,247,.3)" : "1px solid transparent" }}>
               <div style={{ fontSize: 20, marginBottom: 5 }}>{c.icon}</div>
               <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "Syne, sans-serif", color: c.highlight ? "var(--accent)" : "var(--text)" }}>{c.value}</div>
               <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>{c.label}</div>
@@ -196,19 +171,11 @@ export default function EmployeeDashboardPage() {
         </div>
 
         <div style={{ marginTop: 16 }}>
-          {/* Button is disabled while loading OR checking to prevent duplicate submissions.
-              Previously `!todayRec` was true for both `undefined` (loading) and `null`
-              (not checked in), making the button appear and clickable before the API
-              responded. Now we explicitly require !loading as well. */}
           {!loading && !todayRec && (
-            <Btn onClick={handleCheckIn} loading={checking} disabled={checking} variant="success" size="lg" style={{ width: "100%", justifyContent: "center" }}>
-              ✅ Check In
-            </Btn>
+            <Btn onClick={handleCheckIn} loading={checking} disabled={checking} variant="success" size="lg" style={{ width: "100%", justifyContent: "center" }}>✅ Check In</Btn>
           )}
           {!loading && isCheckedIn && (
-            <Btn onClick={handleCheckOut} loading={checking} disabled={checking} variant="danger" size="lg" style={{ width: "100%", justifyContent: "center" }}>
-              🚪 Check Out
-            </Btn>
+            <Btn onClick={handleCheckOut} loading={checking} disabled={checking} variant="danger" size="lg" style={{ width: "100%", justifyContent: "center" }}>🚪 Check Out</Btn>
           )}
           {isCheckedOut && (
             <div style={{ textAlign: "center", color: "var(--text2)", fontSize: 14, padding: "12px 0" }}>
@@ -219,8 +186,8 @@ export default function EmployeeDashboardPage() {
       </Card>
 
       <div className="stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(155px,1fr))", gap: 14 }}>
-        <StatCard icon="✅" label="Present"      value={monthAtt.length}                          sub="This month" color="var(--success)" />
-        <StatCard icon="⚠️" label="Late"         value={monthAtt.filter(a => a.isLate).length}    sub="This month" color="var(--warning)" />
+        <StatCard icon="✅" label="Present"      value={monthAtt.length}                       sub="This month" color="var(--success)" />
+        <StatCard icon="⚠️" label="Late"         value={monthAtt.filter(a => a.isLate).length} sub="This month" color="var(--warning)" />
         <StatCard icon="🏖️" label="Casual Leave" value={avail("CL")} sub={`of ${balance?.clTotal || 12} days`} color="var(--accent)"  />
         <StatCard icon="🏥" label="Sick Leave"   value={avail("SL")} sub={`of ${balance?.slTotal || 10} days`} color="var(--accent2)" />
       </div>

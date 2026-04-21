@@ -13,13 +13,11 @@ export function useAuthContext() {
 }
 
 export function AuthProvider({ children }) {
-  const auth = useAuth();
+  const auth   = useAuth();
   const socket = useSocket(auth.accessToken);
 
   return (
-    <AuthContext.Provider
-      value={{ ...auth, socketOn: socket.on, socketOff: socket.off }}
-    >
+    <AuthContext.Provider value={{ ...auth, socketOn: socket.on, socketOff: socket.off }}>
       {children}
     </AuthContext.Provider>
   );

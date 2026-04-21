@@ -2,17 +2,14 @@
 const { db }                       = require("../lib/db");
 const { ApiError }                 = require("../lib/auth");
 const { emitToAdmins, emitToUser } = require("../lib/socket");
-// Reuse the shared util — no more duplicate implementation here
 const { countWorkingDays }         = require("../lib/utils");
 
-// Maps leave type key → balance column names
 const COLS = {
   CL: { total: "clTotal", used: "clUsed", pending: "clPending" },
   SL: { total: "slTotal", used: "slUsed", pending: "slPending" },
   PL: { total: "plTotal", used: "plUsed", pending: "plPending" },
 };
 
-// Returns today's date as a plain YYYY-MM-DD string (no time component)
 function todayDateStr() {
   const d = new Date();
   return [
@@ -23,7 +20,6 @@ function todayDateStr() {
 }
 
 const leaveService = {
-  // ── apply ──────────────────────────────────────────────────
   async apply(userId, { type, startDate, endDate, reason }) {
     const days = countWorkingDays(startDate, endDate);
     if (days === 0) throw new ApiError("No working days in selected range");
@@ -41,7 +37,6 @@ const leaveService = {
       );
     }
 
-    // Check overlap with existing PENDING or APPROVED requests
     const start   = new Date(startDate);
     const end     = new Date(endDate);
     const overlap = await db.leaveRequest.findFirst({
@@ -54,14 +49,6 @@ const leaveService = {
     });
     if (overlap) throw new ApiError("Overlapping leave request exists", 409, "OVERLAP");
 
-    // Transactional create + pending increment.
-    //
-    // The pending increment uses updateMany with a WHERE guard so the
-    // update only applies when the current pending + days would not
-    // exceed the total allocation. Under concurrent requests from the
-    // same user, only one will succeed — the other gets a 409 retry.
-    //
-    // Guard: pending + days <= total  →  pending <= total - used - days
     const leave = await db.$transaction(async (tx) => {
       const req = await tx.leaveRequest.create({
         data: {
@@ -78,12 +65,9 @@ const leaveService = {
         },
       });
 
-      // Conditional increment — only succeeds when there is still room
       const updated = await tx.leaveBalance.updateMany({
         where: {
           userId,
-          // Re-check at write time: pending must still be low enough
-          // that adding `days` won't push used+pending past total.
           [cols.pending]: {
             lte: balance[cols.total] - balance[cols.used] - days,
           },
@@ -115,7 +99,6 @@ const leaveService = {
     return leave;
   },
 
-  // ── review (admin) ─────────────────────────────────────────
   async review(leaveId, adminId, { action, reviewNote }) {
     const leave = await db.leaveRequest.findUnique({
       where:   { id: leaveId },
@@ -163,7 +146,6 @@ const leaveService = {
     return updated;
   },
 
-  // ── cancel (employee) ──────────────────────────────────────
   async cancel(leaveId, userId) {
     const leave = await db.leaveRequest.findUnique({ where: { id: leaveId } });
     if (!leave)                  throw new ApiError("Leave not found", 404);
@@ -196,7 +178,6 @@ const leaveService = {
     ]);
   },
 
-  // ── list ───────────────────────────────────────────────────
   async list({ userId, status, page = 1, limit = 20 }) {
     const where = {};
     if (userId) where.userId = userId;
@@ -222,7 +203,6 @@ const leaveService = {
     };
   },
 
-  // ── getBalance ─────────────────────────────────────────────
   async getBalance(userId) {
     return db.leaveBalance.findUnique({ where: { userId } });
   },

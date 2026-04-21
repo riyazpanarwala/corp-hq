@@ -1,8 +1,23 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind CSS v4: replace the three @tailwind directives with a single @import.
+   All layer/theme/utilities are included automatically. */
+@import "tailwindcss";
 
+/* Custom font imports */
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Syne:wght@600;700;800&display=swap');
+
+/*
+ * Tailwind CSS v4: theme customisation moves from tailwind.config.js into a
+ * @theme block inside CSS.  The old tailwind.config.js (extend.fontFamily) is
+ * reproduced here using the --font-* namespace that v4 recognises.
+ *
+ * v3 equivalent (tailwind.config.js):
+ *   theme.extend.fontFamily.sans    = ["var(--font-dm-sans)", "sans-serif"]
+ *   theme.extend.fontFamily.display = ["var(--font-syne)",    "sans-serif"]
+ */
+@theme {
+  --font-sans:    var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-syne), ui-sans-serif, system-ui, sans-serif;
+}
 
 :root {
   --bg:          #0d0f14;
@@ -71,6 +86,12 @@ button        { cursor: pointer; font-family: 'DM Sans', sans-serif; }
   100% { background-position: -200% 0 }
 }
 
+/*
+ * Tailwind v4: @layer utilities is still supported for custom utility classes.
+ * The utility classes below (fade-up, shimmer, truncate, stagger) are used
+ * throughout the app via className="...".  No change needed here — @layer
+ * utilities works the same as in v3.
+ */
 @layer utilities {
   .fade-up  { animation: fadeUp  .3s  ease both }
   .fade-in  { animation: fadeIn  .25s ease both }

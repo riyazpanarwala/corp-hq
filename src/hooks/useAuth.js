@@ -3,10 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 
-// Only the access token and user profile are kept in localStorage.
-// The refresh token lives exclusively in an httpOnly cookie set by the
-// server — it is never readable by JavaScript, eliminating the largest
-// XSS-exfiltration target.
 const TOKEN_KEY = "corp_hq_access";
 const USER_KEY  = "corp_hq_user";
 
@@ -55,15 +51,13 @@ export function useAuth() {
   const scheduleRefresh = useCallback((token) => {
     const expiry = tokenExpiry(token);
     if (!expiry) return;
-    const delay = expiry - Date.now() - 2 * 60 * 1000; // refresh 2 min before expiry
+    const delay = expiry - Date.now() - 2 * 60 * 1000;
     if (timerRef.current) clearTimeout(timerRef.current);
     if (delay <= 0) { doRefreshRef.current?.(); return; }
     timerRef.current = setTimeout(() => doRefreshRef.current?.(), delay);
   }, []);
 
   const doLogout = useCallback(() => {
-    // Tell the server to delete the session and clear the httpOnly cookie.
-    // No body needed — the refresh token travels as a cookie automatically.
     fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
     clearSession();
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -74,9 +68,6 @@ export function useAuth() {
 
   const doRefresh = useCallback(async () => {
     try {
-      // The refresh token is an httpOnly cookie — the browser attaches it
-      // automatically via credentials: "same-origin". No need to read it
-      // from JS or send it in the request body.
       const res = await fetch("/api/auth/refresh", {
         method:      "POST",
         credentials: "same-origin",
@@ -98,7 +89,6 @@ export function useAuth() {
   useEffect(() => { doRefreshRef.current = doRefresh; }, [doRefresh]);
   useEffect(() => { doLogoutRef.current  = doLogout;  }, [doLogout]);
 
-  // Hydrate on mount
   useEffect(() => {
     const { access, user: storedUser } = getStored();
     if (access && storedUser) {
@@ -109,7 +99,6 @@ export function useAuth() {
         scheduleRefresh(access);
         setIsHydrated(true);
       } else {
-        // Access token expired — attempt silent refresh via the httpOnly cookie
         doRefresh().then((newToken) => {
           if (newToken) {
             const { user: u } = getStored();
@@ -129,15 +118,13 @@ export function useAuth() {
     try {
       const res  = await fetch("/api/auth/login", {
         method:      "POST",
-        credentials: "same-origin", // receive the httpOnly refresh-token cookie
+        credentials: "same-origin",
         headers:     { "Content-Type": "application/json" },
         body:        JSON.stringify({ email, password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Login failed");
 
-      // Store only the access token + user profile in localStorage.
-      // The refresh token was set as an httpOnly cookie by the server.
       saveSession(data.accessToken, data.user);
       setUser(data.user);
       setAccessToken(data.accessToken);

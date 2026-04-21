@@ -1,6 +1,47 @@
 # CorpHQ — Employee Management Portal
 
-Full-stack Next.js 15 app, JavaScript only. No TypeScript.
+Full-stack Next.js 16 app, JavaScript only. No TypeScript.
+
+---
+
+## Package Versions
+
+| Package | Version | Notes |
+|---------|---------|-------|
+| next | ^16.2.3 | |
+| react / react-dom | ^19.2.5 | |
+| @prisma/client / prisma | ^6.6.0 | See note below |
+| socket.io / socket.io-client | ^4.8.3 | |
+| jose | ^6.0.0 | API identical to v5 — no code changes |
+| bcryptjs | ^2.4.3 | |
+| zod | ^3.25.0 | `.errors` shape unchanged |
+| tailwindcss | ^4.2.2 | CSS-first config — see Tailwind v4 notes |
+| @tailwindcss/postcss | ^4.2.2 | New — required by Tailwind v4 |
+
+### Why Prisma 6 and not 7?
+
+Prisma 7 is the current `latest` tag but is **not recommended for this project** because:
+1. Prisma 7's new features (typed SQL, driver adapters) are TypeScript-focused; this project is pure JavaScript
+2. Prisma 6 → 7 has no functional benefit for existing PostgreSQL + classic-client usage
+3. Prisma 7 peer-requires `typescript >= 5.4.0` (optional but signals the direction)
+
+Upgrade to Prisma 7 when/if you add TypeScript to the project.
+
+### Tailwind CSS v4 Changes
+
+Tailwind v4 is a CSS-first framework. The key differences from v3:
+
+| v3 | v4 |
+|----|----|
+| `@tailwind base/components/utilities` in CSS | `@import "tailwindcss"` |
+| `tailwind.config.js` with `theme.extend` | `@theme { }` block in CSS |
+| `tailwindcss` PostCSS plugin | `@tailwindcss/postcss` PostCSS plugin |
+| Manual `content: [...]` array | Auto-detected from project files |
+
+**What changed in this repo:**
+- `src/app/globals.css` — `@tailwind` directives replaced with `@import "tailwindcss"`; font family config moved from `tailwind.config.js` into a `@theme {}` block
+- `postcss.config.js` — plugin changed from `tailwindcss` to `@tailwindcss/postcss`
+- `tailwind.config.js` — now a comment-only placeholder (not read by Tailwind v4)
 
 ---
 
@@ -12,8 +53,8 @@ corp-hq/
 ├── package.json
 ├── next.config.js
 ├── jsconfig.json                          ← @ path alias → src/
-├── tailwind.config.js
-├── postcss.config.js
+├── tailwind.config.js                     ← UNUSED in v4 (kept as reference comment)
+├── postcss.config.js                      ← Uses @tailwindcss/postcss (v4)
 ├── docker-compose.yml                     ← PostgreSQL + pgAdmin
 ├── .env.example                           ← Copy to .env.local
 │
@@ -26,7 +67,7 @@ corp-hq/
     ├── app/
     │   ├── layout.js                      ← Root layout
     │   ├── page.js                        ← Redirects → /login
-    │   ├── globals.css                    ← Design tokens + animations
+    │   ├── globals.css                    ← Design tokens + animations (Tailwind v4)
     │   ├── (auth)/login/page.js           ← Login page (public)
     │   ├── (admin)/
     │   │   ├── layout.js                  ← Admin guard + Sidebar
@@ -59,7 +100,7 @@ corp-hq/
     │   └── leaveService.js               ← Apply, review, cancel + DB transactions
     ├── lib/
     │   ├── db.js                          ← Prisma singleton
-    │   ├── auth.js                        ← JWT sign/verify + ApiError
+    │   ├── auth.js                        ← JWT sign/verify + ApiError (jose v6)
     │   ├── socket.js                      ← Socket.io server + emit helpers
     │   ├── validations.js                 ← Zod schemas for all inputs
     │   └── utils.js                       ← Pure helpers (format, CSV, etc.)
