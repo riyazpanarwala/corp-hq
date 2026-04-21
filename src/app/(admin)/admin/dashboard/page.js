@@ -3,19 +3,15 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAuthContext } from "@/components/providers/AuthProvider";
 import { Card, StatCard, Badge, Avatar, SectionHeader, Skeleton, EmpCell } from "@/components/ui";
-import { formatTime, formatDate, resolveAttStatus } from "@/lib/utils";
-
-const COLORS = ["#4f8ef7","#7c5cfc","#22d3a5","#f5a623","#f04444"];
-const col = (id) => COLORS[(id || 0) % COLORS.length];
-const ini = (name) => (name || "").split(" ").map(w => w[0]).slice(0,2).join("").toUpperCase() || "??";
+import { formatTime, formatDate, resolveAttStatus, empColor, empInitials } from "@/lib/utils";
 
 export default function AdminDashboardPage() {
   const { authFetch, socketOn } = useAuthContext();
-  const [loading,   setLoading]   = useState(true);
-  const [todayAtt,  setTodayAtt]  = useState([]);
-  const [allUsers,  setAllUsers]  = useState([]);
-  const [activity,  setActivity]  = useState([]);
-  const [pending,   setPending]   = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [todayAtt, setTodayAtt] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
+  const [activity, setActivity] = useState([]);
+  const [pending,  setPending]  = useState([]);
 
   const today = new Date().toISOString().split("T")[0];
 
@@ -61,11 +57,11 @@ export default function AdminDashboardPage() {
       />
 
       <div className="stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 14 }}>
-        <StatCard icon="👥" label="Total Employees" value={empCount}                             color="var(--accent)"  trend={5} />
-        <StatCard icon="✅" label="Present Today"   value={presentCount}                          color="var(--success)" sub={empCount ? `${Math.round(presentCount/empCount*100)}% rate` : ""} />
-        <StatCard icon="⚠️" label="Late Today"      value={lateCount}                             color="var(--warning)" />
-        <StatCard icon="🔴" label="Absent Today"    value={empCount - presentCount}               color="var(--danger)"  />
-        <StatCard icon="📋" label="Pending Leaves"  value={pending.length}                        color="var(--accent2)" />
+        <StatCard icon="👥" label="Total Employees" value={empCount}               color="var(--accent)"  trend={5} />
+        <StatCard icon="✅" label="Present Today"   value={presentCount}            color="var(--success)" sub={empCount ? `${Math.round(presentCount/empCount*100)}% rate` : ""} />
+        <StatCard icon="⚠️" label="Late Today"      value={lateCount}               color="var(--warning)" />
+        <StatCard icon="🔴" label="Absent Today"    value={empCount - presentCount} color="var(--danger)"  />
+        <StatCard icon="📋" label="Pending Leaves"  value={pending.length}          color="var(--accent2)" />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
@@ -78,10 +74,11 @@ export default function AdminDashboardPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {activity.length === 0 && <p style={{ color: "var(--text3)", fontSize: 13 }}>No activity yet today.</p>}
             {activity.map((r, i) => {
-              const emp = r.user;
+              const emp   = r.user;
+              const color = empColor(emp?.name, emp?.id);
               return (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", background: "var(--surface2)", borderRadius: "var(--radius-md)" }}>
-                  <Avatar initials={ini(emp?.name)} size={30} color={col(emp?.id)} />
+                  <Avatar initials={empInitials(emp?.name)} size={30} color={color} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600 }} className="truncate">{emp?.name}</div>
                     <div style={{ fontSize: 11, color: "var(--text3)" }}>
@@ -100,10 +97,11 @@ export default function AdminDashboardPage() {
           <h3 style={{ fontFamily: "Syne, sans-serif", fontWeight: 700, fontSize: 15, marginBottom: 16 }}>Today's Roster</h3>
           <div style={{ display: "flex", flexDirection: "column" }}>
             {allUsers.map(emp => {
-              const rec = todayAtt.find(a => a.userId === emp.id);
+              const rec   = todayAtt.find(a => a.userId === emp.id);
+              const color = empColor(emp.name, emp.id);
               return (
                 <div key={emp.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
-                  <Avatar initials={ini(emp.name)} size={32} color={col(emp.id)} />
+                  <Avatar initials={empInitials(emp.name)} size={32} color={color} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600 }} className="truncate">{emp.name}</div>
                     <div style={{ fontSize: 11, color: "var(--text3)" }}>{emp.department}</div>
@@ -127,10 +125,11 @@ export default function AdminDashboardPage() {
             <span style={{ fontSize: 12, color: "var(--warning)", fontWeight: 600 }}>{pending.length} request{pending.length !== 1 ? "s" : ""}</span>
           </div>
           {pending.map(l => {
-            const emp = l.employee;
+            const emp   = l.employee;
+            const color = empColor(emp?.name, emp?.id);
             return (
               <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
-                <Avatar initials={ini(emp?.name)} size={34} color={col(emp?.id)} />
+                <Avatar initials={empInitials(emp?.name)} size={34} color={color} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }} className="truncate">
                     {emp?.name} <span style={{ color: "var(--text2)", fontWeight: 400 }}>· {l.type}</span>

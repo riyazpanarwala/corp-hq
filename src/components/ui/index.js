@@ -1,6 +1,7 @@
 // src/components/ui/index.js
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { empColor, empInitials } from "@/lib/utils";
 
 // ─── Avatar ───────────────────────────────────────────────────
 export function Avatar({ initials, size = 36, color = "var(--accent)" }) {
@@ -19,19 +20,19 @@ export function Avatar({ initials, size = 36, color = "var(--accent)" }) {
 
 // ─── Badge ────────────────────────────────────────────────────
 const BADGE_MAP = {
-  present:       { color: "#22d3a5", label: "Present"      },
-  absent:        { color: "#f04444", label: "Absent"       },
-  late:          { color: "#f5a623", label: "Late"         },
-  halfday:       { color: "#4f8ef7", label: "Half Day"     },
-  "half-day":    { color: "#4f8ef7", label: "Half Day"     },
-  checkedin:     { color: "#38bdf8", label: "In Office"    },
-  "checked-out": { color: "#8892a4", label: "Checked Out"  },
-  pending:       { color: "#f5a623", label: "Pending"      },
-  approved:      { color: "#22d3a5", label: "Approved"     },
-  rejected:      { color: "#f04444", label: "Rejected"     },
-  cancelled:     { color: "#5a6478", label: "Cancelled"    },
-  admin:         { color: "#4f8ef7", label: "Admin"        },
-  employee:      { color: "#22d3a5", label: "Employee"     },
+  present:       { color: "#22d3a5", label: "Present"     },
+  absent:        { color: "#f04444", label: "Absent"      },
+  late:          { color: "#f5a623", label: "Late"        },
+  halfday:       { color: "#4f8ef7", label: "Half Day"    },
+  "half-day":    { color: "#4f8ef7", label: "Half Day"    },
+  checkedin:     { color: "#38bdf8", label: "In Office"   },
+  "checked-out": { color: "#8892a4", label: "Checked Out" },
+  pending:       { color: "#f5a623", label: "Pending"     },
+  approved:      { color: "#22d3a5", label: "Approved"    },
+  rejected:      { color: "#f04444", label: "Rejected"    },
+  cancelled:     { color: "#5a6478", label: "Cancelled"   },
+  admin:         { color: "#4f8ef7", label: "Admin"       },
+  employee:      { color: "#22d3a5", label: "Employee"    },
 };
 
 export function Badge({ status }) {
@@ -296,7 +297,7 @@ export function ToastStack({ toasts, remove }) {
 // ─── useToast ─────────────────────────────────────────────────
 export function useToast() {
   const [toasts, setToasts] = useState([]);
-  const toast = useCallback((message, type = "info") => {
+  const toast  = useCallback((message, type = "info") => {
     const id = `t-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setToasts(t => [...t, { id, message, type }]);
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 4500);
@@ -362,12 +363,12 @@ export function Skeleton({ width = "100%", height = 20, borderRadius = 8 }) {
   return <div className="shimmer" style={{ width, height, borderRadius }} />;
 }
 
-// ─── EmpCell (shared table cell) ──────────────────────────────
+// ─── EmpCell ──────────────────────────────────────────────────
+// Uses shared empColor/empInitials from utils — no more local duplication.
 export function EmpCell({ emp, sub }) {
   if (!emp) return <span style={{ color: "var(--text3)" }}>—</span>;
-  const colors = ["#4f8ef7","#7c5cfc","#22d3a5","#f5a623","#f04444"];
-  const color  = colors[(emp.id || 0) % colors.length];
-  const initials = emp.name?.split(" ").map(w => w[0]).slice(0,2).join("").toUpperCase() || "??";
+  const color    = empColor(emp.name, emp.id);
+  const initials = empInitials(emp.name);
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <Avatar initials={initials} size={28} color={color} />

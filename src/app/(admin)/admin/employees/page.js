@@ -3,22 +3,16 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAuthContext } from "@/components/providers/AuthProvider";
 import { Card, Badge, Avatar, SectionHeader, Skeleton } from "@/components/ui";
-import { formatTime, resolveAttStatus } from "@/lib/utils";
-
-const COLORS = ["#4f8ef7","#7c5cfc","#22d3a5","#f5a623","#f04444"];
-const col    = id => COLORS[(id||0) % COLORS.length];
-const ini    = name => (name||"").split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase()||"??";
+import { formatTime, resolveAttStatus, empColor, empInitials } from "@/lib/utils";
 
 export default function AdminEmployeesPage() {
   const { authFetch } = useAuthContext();
   const [employees, setEmployees] = useState([]);
   const [todayAtt,  setTodayAtt]  = useState([]);
-  const [balances,  setBalances]  = useState({});
   const [loading,   setLoading]   = useState(true);
   const [search,    setSearch]    = useState("");
 
-  const today    = new Date().toISOString().split("T")[0];
-  const curMonth = new Date().toISOString().slice(0, 7);
+  const today = new Date().toISOString().split("T")[0];
 
   const fetchAll = useCallback(async () => {
     const [usersRes, todayRes] = await Promise.all([
@@ -26,8 +20,7 @@ export default function AdminEmployeesPage() {
       authFetch(`/api/attendance?date=${today}&limit=50`),
     ]);
     const [usersData, todayData] = await Promise.all([usersRes.json(), todayRes.json()]);
-    const emps = (usersData.users || []).filter(u => u.role === "EMPLOYEE");
-    setEmployees(emps);
+    setEmployees((usersData.users || []).filter(u => u.role === "EMPLOYEE"));
     setTodayAtt(todayData.records || []);
     setLoading(false);
   }, [authFetch, today]);
@@ -37,7 +30,7 @@ export default function AdminEmployeesPage() {
   const filtered = employees.filter(e =>
     !search ||
     e.name.toLowerCase().includes(search.toLowerCase()) ||
-    e.department.toLowerCase().includes(search.toLowerCase())
+    e.department.toLowerCase().includes(search.toLowerCase()),
   );
 
   if (loading) {
@@ -61,10 +54,11 @@ export default function AdminEmployeesPage() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 16 }}>
         {filtered.map(emp => {
           const todayRec = todayAtt.find(a => a.userId === emp.id);
+          const color    = empColor(emp.name, emp.id);
           return (
             <Card key={emp.id}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
-                <Avatar initials={ini(emp.name)} size={46} color={col(emp.id)} />
+                <Avatar initials={empInitials(emp.name)} size={46} color={color} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 15 }}>{emp.name}</div>
                   <div style={{ fontSize: 12, color: "var(--text2)" }}>{emp.designation}</div>

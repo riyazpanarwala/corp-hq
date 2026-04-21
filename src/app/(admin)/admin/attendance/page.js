@@ -2,16 +2,16 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { useAuthContext } from "@/components/providers/AuthProvider";
-import { Card, Table, Badge, Btn, SectionHeader, Skeleton } from "@/components/ui";
-import { formatTime, formatDate, formatHours, resolveAttStatus, downloadCSV } from "@/lib/utils";
+import { Card, Table, Badge, Btn, SectionHeader, Skeleton, Avatar } from "@/components/ui";
+import { formatTime, formatDate, formatHours, resolveAttStatus, downloadCSV, empColor, empInitials } from "@/lib/utils";
 
 export default function AdminAttendancePage() {
   const { authFetch, socketOn } = useAuthContext();
-  const [records,  setRecords]  = useState([]);
-  const [users,    setUsers]    = useState([]);
-  const [total,    setTotal]    = useState(0);
-  const [loading,  setLoading]  = useState(true);
-  const [filters,  setFilters]  = useState({
+  const [records, setRecords] = useState([]);
+  const [users,   setUsers]   = useState([]);
+  const [total,   setTotal]   = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState({
     date:   new Date().toISOString().split("T")[0],
     userId: "all",
     status: "all",
@@ -27,10 +27,10 @@ export default function AdminAttendancePage() {
   const fetchRecords = useCallback(async () => {
     setLoading(true);
     const p = new URLSearchParams();
-    if (filters.date)            p.set("date",   filters.date);
+    if (filters.date)             p.set("date",   filters.date);
     if (filters.userId !== "all") p.set("userId", filters.userId);
     if (filters.status !== "all") p.set("status", filters.status);
-    p.set("page", String(filters.page));
+    p.set("page",  String(filters.page));
     p.set("limit", "50");
     const res  = await authFetch(`/api/attendance?${p}`);
     const data = await res.json();
@@ -50,7 +50,7 @@ export default function AdminAttendancePage() {
 
   const handleExport = () => {
     const headers = ["Date","Employee","Department","Check In","Check Out","Hours","Status","Late (min)"];
-    const rows = records.map(r => [
+    const rows    = records.map(r => [
       r.date, r.user?.name, r.user?.department,
       formatTime(r.checkIn), formatTime(r.checkOut),
       formatHours(r.hoursWorked),
@@ -63,7 +63,18 @@ export default function AdminAttendancePage() {
   const set = (key, val) => setFilters(f => ({ ...f, [key]: val, page: 1 }));
 
   const cols = [
-    { key: "user",     label: "Employee",  render: r => <div style={{ display:"flex",alignItems:"center",gap:8 }}><Initials name={r.user?.name} id={r.user?.id} /><div><div style={{fontWeight:600,fontSize:13}}>{r.user?.name}</div><div style={{fontSize:11,color:"var(--text3)"}}>{r.user?.department}</div></div></div> },
+    {
+      key: "user", label: "Employee",
+      render: r => (
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Avatar initials={empInitials(r.user?.name)} size={28} color={empColor(r.user?.name, r.user?.id)} />
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>{r.user?.name}</div>
+            <div style={{ fontSize: 11, color: "var(--text3)" }}>{r.user?.department}</div>
+          </div>
+        </div>
+      ),
+    },
     { key: "date",     label: "Date",      render: r => formatDate(r.date) },
     { key: "checkIn",  label: "Check In",  render: r => formatTime(r.checkIn) },
     { key: "checkOut", label: "Check Out", render: r => formatTime(r.checkOut) },
@@ -101,17 +112,6 @@ export default function AdminAttendancePage() {
           <Table cols={cols} rows={records} emptyMsg="No records match your filters." />
         )}
       </Card>
-    </div>
-  );
-}
-
-function Initials({ name, id }) {
-  const COLORS = ["#4f8ef7","#7c5cfc","#22d3a5","#f5a623","#f04444"];
-  const color  = COLORS[(id || 0) % COLORS.length];
-  const ini    = (name || "").split(" ").map(w => w[0]).slice(0,2).join("").toUpperCase() || "??";
-  return (
-    <div style={{ width:28,height:28,borderRadius:"50%",flexShrink:0,background:`${color}1a`,border:`2px solid ${color}40`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color }}>
-      {ini}
     </div>
   );
 }

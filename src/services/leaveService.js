@@ -1,7 +1,9 @@
 // src/services/leaveService.js
-const { db }                    = require("../lib/db");
-const { ApiError }              = require("../lib/auth");
+const { db }                       = require("../lib/db");
+const { ApiError }                 = require("../lib/auth");
 const { emitToAdmins, emitToUser } = require("../lib/socket");
+// Reuse the shared util — no more duplicate implementation here
+const { countWorkingDays }         = require("../lib/utils");
 
 // Maps leave type key → balance column names
 const COLS = {
@@ -9,18 +11,6 @@ const COLS = {
   SL: { total: "slTotal", used: "slUsed", pending: "slPending" },
   PL: { total: "plTotal", used: "plUsed", pending: "plPending" },
 };
-
-function countWorkingDays(startStr, endStr) {
-  const start = new Date(startStr);
-  const end   = new Date(endStr);
-  let count   = 0;
-  const d     = new Date(start);
-  while (d <= end) {
-    if (d.getDay() !== 0 && d.getDay() !== 6) count++;
-    d.setDate(d.getDate() + 1);
-  }
-  return count;
-}
 
 // Returns today's date as a plain YYYY-MM-DD string (no time component)
 function todayDateStr() {
@@ -41,7 +31,7 @@ const leaveService = {
     const balance = await db.leaveBalance.findUnique({ where: { userId } });
     if (!balance) throw new ApiError("Leave balance not found", 404);
 
-    const cols = COLS[type];
+    const cols  = COLS[type];
     const avail = balance[cols.total] - balance[cols.used] - balance[cols.pending];
     if (days > avail) {
       throw new ApiError(
@@ -64,7 +54,14 @@ const leaveService = {
     });
     if (overlap) throw new ApiError("Overlapping leave request exists", 409, "OVERLAP");
 
-    // Transactional create + pending increment
+    // Transactional create + pending increment.
+    //
+    // The pending increment uses updateMany with a WHERE guard so the
+    // update only applies when the current pending + days would not
+    // exceed the total allocation. Under concurrent requests from the
+    // same user, only one will succeed — the other gets a 409 retry.
+    //
+    // Guard: pending + days <= total  →  pending <= total - used - days
     const leave = await db.$transaction(async (tx) => {
       const req = await tx.leaveRequest.create({
         data: {
@@ -80,17 +77,35 @@ const leaveService = {
           employee: { select: { id: true, name: true, department: true } },
         },
       });
-      await tx.leaveBalance.update({
-        where: { userId },
-        data:  { [cols.pending]: { increment: days } },
+
+      // Conditional increment — only succeeds when there is still room
+      const updated = await tx.leaveBalance.updateMany({
+        where: {
+          userId,
+          // Re-check at write time: pending must still be low enough
+          // that adding `days` won't push used+pending past total.
+          [cols.pending]: {
+            lte: balance[cols.total] - balance[cols.used] - days,
+          },
+        },
+        data: { [cols.pending]: { increment: days } },
       });
+
+      if (updated.count === 0) {
+        throw new ApiError(
+          "Balance was updated by a concurrent request — please retry",
+          409,
+          "CONCURRENT_BALANCE_CONFLICT",
+        );
+      }
+
       return req;
     });
 
     emitToAdmins("leave:applied", {
-      leaveId: leave.id,
+      leaveId:   leave.id,
       userId,
-      userName: leave.employee.name,
+      userName:  leave.employee.name,
       type,
       days,
       startDate,
@@ -109,7 +124,7 @@ const leaveService = {
     if (!leave) throw new ApiError("Leave not found", 404);
     if (leave.status !== "PENDING") throw new ApiError("Leave already reviewed", 409);
 
-    const cols     = COLS[leave.type];
+    const cols      = COLS[leave.type];
     const newStatus = action === "APPROVED" ? "APPROVED" : "REJECTED";
 
     const updated = await db.$transaction(async (tx) => {
@@ -151,18 +166,14 @@ const leaveService = {
   // ── cancel (employee) ──────────────────────────────────────
   async cancel(leaveId, userId) {
     const leave = await db.leaveRequest.findUnique({ where: { id: leaveId } });
-    if (!leave)                   throw new ApiError("Leave not found", 404);
-    if (leave.userId !== userId)  throw new ApiError("Unauthorized", 403);
+    if (!leave)                  throw new ApiError("Leave not found", 404);
+    if (leave.userId !== userId) throw new ApiError("Unauthorized", 403);
     if (leave.status === "APPROVED")
       throw new ApiError("Cannot cancel approved leave. Contact HR.", 409);
     if (leave.status === "CANCELLED")
       throw new ApiError("Already cancelled", 409);
 
-    // MINOR FIX: Prevent cancelling a PENDING leave whose start date is today
-    // or in the past. Previously an employee could cancel a leave that had
-    // already begun (or started today), effectively retroactively erasing it.
-    const today = todayDateStr();
-    // leave.startDate is a Date object from Prisma; convert to YYYY-MM-DD for comparison
+    const today      = todayDateStr();
     const leaveStart = leave.startDate.toISOString().split("T")[0];
     if (leaveStart <= today) {
       throw new ApiError(

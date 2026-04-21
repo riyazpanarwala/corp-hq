@@ -3,13 +3,10 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAuthContext } from "@/components/providers/AuthProvider";
 import { Card, Table, Badge, Btn, Modal, Tabs, SectionHeader, Avatar, Field, Skeleton } from "@/components/ui";
-import { formatDate } from "@/lib/utils";
+import { formatDate, empColor, empInitials } from "@/lib/utils";
 
 const LEAVE_LABELS = { CL: "Casual Leave", SL: "Sick Leave", PL: "Paid Leave" };
 const LEAVE_EMOJI  = { CL: "🏖️", SL: "🏥", PL: "💰" };
-const COLORS = ["#4f8ef7","#7c5cfc","#22d3a5","#f5a623","#f04444"];
-const col    = id => COLORS[(id||0) % COLORS.length];
-const ini    = name => (name||"").split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase()||"??";
 
 export default function AdminLeavesPage() {
   const { authFetch, socketOn } = useAuthContext();
@@ -22,7 +19,6 @@ export default function AdminLeavesPage() {
 
   const fetchLeaves = useCallback(async () => {
     setLoading(true);
-    // Fetch current tab + counts for all tabs
     const [tabRes, pendRes, appRes, rejRes] = await Promise.all([
       authFetch(`/api/leaves?status=${tab}&limit=50`),
       authFetch("/api/leaves?status=PENDING&limit=1"),
@@ -61,23 +57,26 @@ export default function AdminLeavesPage() {
   ];
 
   const cols = [
-    { key: "emp",    label: "Employee", render: r => (
-      <div style={{display:"flex",alignItems:"center",gap:8}}>
-        <Avatar initials={ini(r.employee?.name)} size={28} color={col(r.employee?.id)} />
-        <div>
-          <div style={{fontWeight:600,fontSize:13}}>{r.employee?.name}</div>
-          <div style={{fontSize:11,color:"var(--text3)"}}>{r.employee?.department}</div>
+    {
+      key: "emp", label: "Employee",
+      render: r => (
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Avatar initials={empInitials(r.employee?.name)} size={28} color={empColor(r.employee?.name, r.employee?.id)} />
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>{r.employee?.name}</div>
+            <div style={{ fontSize: 11, color: "var(--text3)" }}>{r.employee?.department}</div>
+          </div>
         </div>
-      </div>
-    )},
+      ),
+    },
     { key: "type",   label: "Type",   render: r => `${LEAVE_EMOJI[r.type]||""} ${LEAVE_LABELS[r.type]||r.type}` },
     { key: "period", label: "Period", render: r => `${formatDate(r.startDate)} — ${formatDate(r.endDate)}` },
     { key: "days",   label: "Days" },
-    { key: "reason", label: "Reason", render: r => <span className="truncate" style={{color:"var(--text2)",maxWidth:160,display:"block"}}>{r.reason}</span> },
+    { key: "reason", label: "Reason", render: r => <span className="truncate" style={{ color: "var(--text2)", maxWidth: 160, display: "block" }}>{r.reason}</span> },
     { key: "status", label: "Status", render: r => <Badge status={r.status?.toLowerCase()} /> },
     { key: "action", label: "Action", render: r => r.status === "PENDING"
       ? <Btn size="xs" variant="secondary" onClick={() => { setReview(r); setNote(""); }}>Review</Btn>
-      : (r.reviewNote ? <span style={{fontSize:12,color:"var(--text3)",maxWidth:140,display:"block"}} className="truncate">{r.reviewNote}</span> : "—")
+      : (r.reviewNote ? <span style={{ fontSize: 12, color: "var(--text3)", maxWidth: 140, display: "block" }} className="truncate">{r.reviewNote}</span> : "—")
     },
   ];
 
@@ -94,14 +93,19 @@ export default function AdminLeavesPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
             <div style={{ padding: 16, background: "var(--surface2)", borderRadius: "var(--radius-md)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-                <Avatar initials={ini(review.employee?.name)} size={40} color={col(review.employee?.id)} />
+                <Avatar initials={empInitials(review.employee?.name)} size={40} color={empColor(review.employee?.name, review.employee?.id)} />
                 <div>
                   <div style={{ fontWeight: 700 }}>{review.employee?.name}</div>
                   <div style={{ fontSize: 12, color: "var(--text3)" }}>{review.employee?.department}</div>
                 </div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 13 }}>
-                {[["Type", `${LEAVE_EMOJI[review.type]} ${LEAVE_LABELS[review.type]}`], ["Days", `${review.days} working day${review.days !== 1 ? "s" : ""}`], ["From", formatDate(review.startDate)], ["To", formatDate(review.endDate)]].map(([k,v]) => (
+                {[
+                  ["Type",  `${LEAVE_EMOJI[review.type]} ${LEAVE_LABELS[review.type]}`],
+                  ["Days",  `${review.days} working day${review.days !== 1 ? "s" : ""}`],
+                  ["From",  formatDate(review.startDate)],
+                  ["To",    formatDate(review.endDate)],
+                ].map(([k, v]) => (
                   <div key={k}><span style={{ color: "var(--text2)" }}>{k}: </span><strong>{v}</strong></div>
                 ))}
               </div>
