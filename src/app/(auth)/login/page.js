@@ -1,6 +1,7 @@
 // src/app/(auth)/login/page.js
 "use client";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAuthContext } from "@/components/providers/AuthProvider";
 import { Btn, Divider, Spinner } from "@/components/ui";
 
@@ -12,13 +13,22 @@ const DEMO = [
 ];
 
 export default function LoginPage() {
-  const { login, isLoading } = useAuthContext();
+  const router = useRouter();
+  const { login, isLoading, isHydrated, isLoggedIn, isAdmin } = useAuthContext();
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [error,    setError]    = useState("");
   const [mounted,  setMounted]  = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
+
+  // Redirect already-authenticated users away from the login page
+  useEffect(() => {
+    if (!isHydrated) return;
+    if (isLoggedIn) {
+      router.replace(isAdmin ? "/admin/dashboard" : "/employee/dashboard");
+    }
+  }, [isHydrated, isLoggedIn, isAdmin, router]);
 
   const handleSubmit = async (e) => {
     e?.preventDefault();
@@ -28,7 +38,17 @@ export default function LoginPage() {
     if (!result.success) setError(result.error || "Login failed");
   };
 
-  if (!mounted) {
+  // While hydrating or redirecting an already-logged-in user, show a spinner
+  if (!mounted || (isHydrated && isLoggedIn)) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)" }}>
+        <Spinner size={36} />
+      </div>
+    );
+  }
+
+  // Still waiting for localStorage to be read
+  if (!isHydrated) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", background: "var(--bg)" }}>
         <div style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", justifyContent: "center", padding: "40px 36px", margin: "0 auto" }}>
