@@ -1,7 +1,7 @@
 // src/app/api/attendance/route.js
-import { getCurrentUser, handleApiError } from "@/lib/auth";
-import { attendanceService }              from "@/services/attendanceService";
-import { AttendanceFilterSchema, CheckInSchema } from "@/lib/validations";
+import { getCurrentUser, handleApiError, ApiError } from "@/lib/auth";
+import { attendanceService }                        from "@/services/attendanceService";
+import { AttendanceFilterSchema, CheckInSchema, ManualAttendanceSchema } from "@/lib/validations";
 
 // GET /api/attendance
 export async function GET(request) {
@@ -18,12 +18,23 @@ export async function GET(request) {
   }
 }
 
-// POST /api/attendance  — check in
+// POST /api/attendance -- employee check-in, or admin manual attendance entry
 export async function POST(request) {
   try {
-    const user   = getCurrentUser(request);
-    const body   = CheckInSchema.parse(await request.json());
-    const record = await attendanceService.checkIn(user.id, body);
+    const user = getCurrentUser(request);
+    const json = await request.json();
+    const isManualEntry = json.userId || json.date || json.checkInTime || json.checkOutTime;
+    let record;
+
+    if (isManualEntry) {
+      if (user.role !== "ADMIN") throw new ApiError("Admin access required", 403);
+      const body = ManualAttendanceSchema.parse(json);
+      record = await attendanceService.recordManual(body);
+    } else {
+      const body = CheckInSchema.parse(json);
+      record = await attendanceService.checkIn(user.id, body);
+    }
+
     return Response.json(record, { status: 201 });
   } catch (err) {
     if (err?.errors) return Response.json({ error: err.errors[0].message }, { status: 422 });

@@ -18,6 +18,20 @@ const CheckOutSchema = z.object({
   notes:    z.string().max(500).optional(),
 });
 
+const ManualAttendanceSchema = z
+  .object({
+    userId:       z.coerce.number().int().positive(),
+    date:         z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    checkInTime:  z.string().regex(/^\d{2}:\d{2}$/),
+    checkOutTime: z.string().regex(/^\d{2}:\d{2}$/).optional().or(z.literal("")),
+    timezone:     z.string().default("UTC"),
+    notes:        z.string().max(500).optional(),
+  })
+  .refine(d => !d.checkOutTime || d.checkOutTime > d.checkInTime, {
+    message: "Check out must be after check in",
+    path: ["checkOutTime"],
+  });
+
 const AttendanceFilterSchema = z.object({
   date:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   month:  z.string().regex(/^\d{4}-\d{2}$/).optional(),
@@ -69,6 +83,6 @@ const RefreshSchema = z.object({ refreshToken: z.string().min(1) });
 
 module.exports = {
   LoginSchema, CheckInSchema, CheckOutSchema,
-  AttendanceFilterSchema, ApplyLeaveSchema, ReviewLeaveSchema,
+  ManualAttendanceSchema, AttendanceFilterSchema, ApplyLeaveSchema, ReviewLeaveSchema,
   LeaveFilterSchema, CreateUserSchema, RefreshSchema,
 };

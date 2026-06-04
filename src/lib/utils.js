@@ -1,22 +1,24 @@
-// src/lib/utils.js  — browser-safe, no server imports
+// src/lib/utils.js -- browser-safe, no server imports
 
-function formatTime(iso) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+function formatTime(iso, timeZone) {
+  if (!iso) return "-";
+  const options = { hour: "2-digit", minute: "2-digit" };
+  if (timeZone) options.timeZone = timeZone;
+  return new Date(iso).toLocaleTimeString("en-US", options);
 }
 
 function formatDate(str) {
-  if (!str) return "—";
+  if (!str) return "-";
   const dateStr = String(str).split("T")[0];
   const [y, m, d] = dateStr.split("-").map(Number);
-  if (!y || !m || !d) return "—";
+  if (!y || !m || !d) return "-";
   return new Date(y, m - 1, d).toLocaleDateString("en-US", {
     month: "short", day: "numeric", year: "numeric",
   });
 }
 
 function formatHours(h) {
-  if (h == null || h === "") return "—";
+  if (h == null || h === "") return "-";
   const n    = parseFloat(h);
   const hrs  = Math.floor(n);
   const mins = Math.round((n - hrs) * 60);
@@ -103,9 +105,9 @@ function empInitials(name) {
 }
 
 const LEAVE_CONFIG = {
-  CL: { label: "Casual Leave", emoji: "🏖️", color: "var(--accent)"  },
-  SL: { label: "Sick Leave",   emoji: "🏥", color: "var(--warning)" },
-  PL: { label: "Paid Leave",   emoji: "💰", color: "var(--success)" },
+  CL: { label: "Casual Leave", emoji: "CL", color: "var(--accent)"  },
+  SL: { label: "Sick Leave",   emoji: "SL", color: "var(--warning)" },
+  PL: { label: "Paid Leave",   emoji: "PL", color: "var(--success)" },
 };
 
 module.exports = {

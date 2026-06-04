@@ -158,8 +158,8 @@ export default function EmployeeDashboardPage() {
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginTop: 18 }}>
           {[
-            { icon: "🕗", label: "Check In",    value: formatTime(todayRec?.checkIn) },
-            { icon: "🕔", label: "Check Out",   value: formatTime(todayRec?.checkOut) },
+            { icon: "🕗", label: "Check In",    value: formatTime(todayRec?.checkIn, todayRec?.checkInTz) },
+            { icon: "🕔", label: "Check Out",   value: formatTime(todayRec?.checkOut, todayRec?.checkOutTz || todayRec?.checkInTz) },
             { icon: "⏱️", label: "Hours Today", value: isCheckedIn && elapsed != null ? formatHours(elapsed) : formatHours(todayRec?.hoursWorked), highlight: !!isCheckedIn },
           ].map(c => (
             <div key={c.label} style={{ background: "var(--surface2)", borderRadius: "var(--radius-md)", padding: 14, textAlign: "center", border: c.highlight ? "1px solid rgba(79,142,247,.3)" : "1px solid transparent" }}>
@@ -197,8 +197,8 @@ export default function EmployeeDashboardPage() {
         <Table
           cols={[
             { key: "date",     label: "Date",      render: r => formatDate(r.date) },
-            { key: "checkIn",  label: "Check In",  render: r => formatTime(r.checkIn) },
-            { key: "checkOut", label: "Check Out", render: r => formatTime(r.checkOut) },
+            { key: "checkIn",  label: "Check In",  render: r => formatTime(r.checkIn, r.checkInTz) },
+            { key: "checkOut", label: "Check Out", render: r => formatTime(r.checkOut, r.checkOutTz || r.checkInTz) },
             { key: "hours",    label: "Hours",     render: r => formatHours(r.hoursWorked) },
             { key: "status",   label: "Status",    render: r => <Badge status={resolveAttStatus(r)} /> },
           ]}
@@ -236,3 +236,4 @@ function DashSkeleton() {
     </div>
   );
 }
+

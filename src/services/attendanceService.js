@@ -3,6 +3,49 @@ const { db }           = require("../lib/db");
 const { ApiError }     = require("../lib/auth");
 const { emitToAdmins } = require("../lib/socket");
 
+function zonedDateTimeToUtc(date, time, timeZone) {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+
+  const offsetAt = (utcMs) => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date(utcMs));
+    const values = Object.fromEntries(parts.map(p => [p.type, p.value]));
+    const asUtc = Date.UTC(
+      Number(values.year),
+      Number(values.month) - 1,
+      Number(values.day),
+      Number(values.hour),
+      Number(values.minute),
+      Number(values.second),
+    );
+    return asUtc - utcMs;
+  };
+
+  const firstPass = utcGuess - offsetAt(utcGuess);
+  return new Date(utcGuess - offsetAt(firstPass));
+}
+
+function dateStringInZone(date, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(p => [p.type, p.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 const attendanceService = {
   todayDate() {
     const d = new Date();
@@ -16,13 +59,15 @@ const attendanceService = {
     return cfg;
   },
 
-  computeLate(now, cfg) {
-    const threshold = new Date(now);
-    threshold.setHours(
-      cfg.workStartHour,
-      cfg.workStartMinute + cfg.lateThresholdMin,
-      0,
-      0,
+  computeLate(now, cfg, timeZone = "UTC") {
+    const date = dateStringInZone(now, timeZone);
+    const thresholdMinutes = cfg.workStartMinute + cfg.lateThresholdMin;
+    const thresholdHour = cfg.workStartHour + Math.floor(thresholdMinutes / 60);
+    const thresholdMinute = thresholdMinutes % 60;
+    const threshold = zonedDateTimeToUtc(
+      date,
+      `${String(thresholdHour).padStart(2, "0")}:${String(thresholdMinute).padStart(2, "0")}`,
+      timeZone,
     );
     const isLate      = now > threshold;
     const lateMinutes = isLate
@@ -41,7 +86,7 @@ const attendanceService = {
       throw new ApiError("Already checked in today", 409, "DUPLICATE_CHECKIN");
 
     const now                    = new Date();
-    const { isLate, lateMinutes } = this.computeLate(now, cfg);
+    const { isLate, lateMinutes } = this.computeLate(now, cfg, timezone);
 
     const record = await db.attendance.create({
       data: {
@@ -107,6 +152,57 @@ const attendanceService = {
   async getTodayRecord(userId) {
     return db.attendance.findUnique({
       where: { userId_date: { userId, date: this.todayDate() } },
+    });
+  },
+
+  async recordManual({ userId, date, checkInTime, checkOutTime, timezone, notes }) {
+    const cfg = await this.getConfig();
+    const employee = await db.user.findFirst({
+      where:  { id: userId, role: "EMPLOYEE", isActive: true },
+      select: { id: true },
+    });
+    if (!employee) throw new ApiError("Employee not found", 404);
+
+    const workDate = new Date(`${date}T00:00:00.000Z`);
+    const checkIn  = zonedDateTimeToUtc(date, checkInTime, timezone);
+    const checkOut = checkOutTime ? zonedDateTimeToUtc(date, checkOutTime, timezone) : null;
+
+    const { isLate, lateMinutes } = this.computeLate(checkIn, cfg, timezone);
+    const hoursWorked = checkOut
+      ? Math.round(((checkOut.getTime() - checkIn.getTime()) / 3_600_000) * 100) / 100
+      : null;
+    const isHalfDay = hoursWorked != null && hoursWorked < Number(cfg.halfDayHours);
+
+    return db.attendance.upsert({
+      where: { userId_date: { userId, date: workDate } },
+      update: {
+        checkIn,
+        checkOut,
+        checkInTz: timezone,
+        checkOutTz: checkOut ? timezone : null,
+        hoursWorked,
+        isLate,
+        lateMinutes,
+        isHalfDay,
+        autoCheckedOut: false,
+        status: isHalfDay ? "HALF_DAY" : "PRESENT",
+        notes,
+      },
+      create: {
+        userId,
+        date: workDate,
+        checkIn,
+        checkOut,
+        checkInTz: timezone,
+        checkOutTz: checkOut ? timezone : null,
+        hoursWorked,
+        isLate,
+        lateMinutes,
+        isHalfDay,
+        status: isHalfDay ? "HALF_DAY" : "PRESENT",
+        notes,
+      },
+      include: { user: { select: { id: true, name: true, department: true, designation: true } } },
     });
   },
 
