@@ -177,6 +177,9 @@ const attendanceService = {
     const workDate = workDateFromString(date);
     const checkIn  = zonedDateTimeToUtc(date, checkInTime, timezone);
     const checkOut = checkOutTime ? zonedDateTimeToUtc(date, checkOutTime, timezone) : null;
+    if (checkOut && checkOut <= checkIn) {
+      throw new ApiError("Check out must be after check in", 422, "INVALID_CHECKOUT_TIME");
+    }
 
     const { isLate, lateMinutes } = this.computeLate(checkIn, cfg, timezone);
     const hoursWorked = checkOut

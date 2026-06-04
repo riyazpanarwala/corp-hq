@@ -10,7 +10,7 @@ const EMPTY_FORM = {
   email: "",
   department: "",
   designation: "",
-  timezone: "Asia/Calcutta",
+  timezone: "Asia/Kolkata",
   password: "",
 };
 
@@ -213,7 +213,7 @@ export default function AdminEmployeesPage() {
                 <input value={form.designation} onChange={e => setField("designation", e.target.value)} placeholder="Software Engineer" />
               </Field>
               <Field label="Timezone">
-                <input value={form.timezone} onChange={e => setField("timezone", e.target.value)} placeholder="Asia/Calcutta" />
+                <input value={form.timezone} onChange={e => setField("timezone", e.target.value)} placeholder="Asia/Kolkata" />
               </Field>
               <Field label="Temporary password" hint="Minimum 8 characters.">
                 <input type="password" value={form.password} onChange={e => setField("password", e.target.value)} placeholder="password123" />

@@ -7,7 +7,8 @@ export async function DELETE(request, { params }) {
     const admin = getCurrentUser(request);
     if (admin.role !== "ADMIN") throw new ApiError("Forbidden", 403);
 
-    const id = Number(params.id);
+    const { id: rawId } = await params;
+    const id = Number(rawId);
     if (!Number.isInteger(id) || id <= 0) throw new ApiError("Invalid user ID", 422);
     if (id === admin.id) throw new ApiError("You cannot remove your own account", 400);
 

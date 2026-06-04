@@ -41,7 +41,7 @@ const ManualAttendanceSchema = z
     notes:        z.string().max(500).optional(),
   })
   .refine(d => !d.checkOutTime || d.checkOutTime > d.checkInTime, {
-    message: "Check out must be after check in",
+    message: "Check out must be after check in for the selected date",
     path: ["checkOutTime"],
   });
 

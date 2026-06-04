@@ -10,7 +10,7 @@ const defaultTimeForm = (date) => ({
   date,
   checkInTime: "09:30",
   checkOutTime: "18:30",
-  timezone: "Asia/Calcutta",
+  timezone: "Asia/Kolkata",
   notes: "",
 });
 
