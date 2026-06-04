@@ -3,9 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAuthContext } from "@/components/providers/AuthProvider";
 import { Card, Table, Badge, Btn, SectionHeader, Skeleton, Avatar, Modal, Field, ToastStack, useToast } from "@/components/ui";
-import { formatTime, formatDate, formatHours, resolveAttStatus, downloadCSV, empColor, empInitials } from "@/lib/utils";
-
-const todayISO = () => new Date().toISOString().split("T")[0];
+import { formatTime, formatDate, formatHours, resolveAttStatus, downloadCSV, empColor, empInitials, todayStr } from "@/lib/utils";
 
 const defaultTimeForm = (date) => ({
   userId: "",
@@ -23,12 +21,12 @@ export default function AdminAttendancePage() {
   const [total,   setTotal]   = useState(0);
   const [loading, setLoading] = useState(true);
   const [showTimeForm, setShowTimeForm] = useState(false);
-  const [timeForm, setTimeForm] = useState(() => defaultTimeForm(todayISO()));
+  const [timeForm, setTimeForm] = useState(() => defaultTimeForm(todayStr()));
   const [timeError, setTimeError] = useState("");
   const [savingTime, setSavingTime] = useState(false);
   const { toasts, toast, remove } = useToast();
   const [filters, setFilters] = useState({
-    date:   todayISO(),
+    date:   todayStr(),
     userId: "all",
     status: "all",
     page:   1,
@@ -90,7 +88,7 @@ export default function AdminAttendancePage() {
   };
 
   const openTimeForm = () => {
-    setTimeForm(defaultTimeForm(filters.date || todayISO()));
+    setTimeForm(defaultTimeForm(filters.date || todayStr()));
     setTimeError("");
     setShowTimeForm(true);
   };

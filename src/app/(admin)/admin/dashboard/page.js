@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAuthContext } from "@/components/providers/AuthProvider";
 import { Card, StatCard, Badge, Avatar, SectionHeader, Skeleton, EmpCell } from "@/components/ui";
-import { formatTime, formatDate, resolveAttStatus, empColor, empInitials } from "@/lib/utils";
+import { formatTime, formatDate, resolveAttStatus, empColor, empInitials, todayStr } from "@/lib/utils";
 
 export default function AdminDashboardPage() {
   const { authFetch, socketOn } = useAuthContext();
@@ -13,7 +13,7 @@ export default function AdminDashboardPage() {
   const [activity, setActivity] = useState([]);
   const [pending,  setPending]  = useState([]);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayStr();
 
   const fetchAll = useCallback(async () => {
     try {

@@ -3,18 +3,31 @@
 // All .errors[0].message patterns in route handlers continue to work correctly.
 const { z } = require("zod");
 
+const TimeStringSchema = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Time must be in HH:mm format");
+
+const TimezoneSchema = z.string().refine((timeZone) => {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}, "Invalid timezone");
+
 const LoginSchema = z.object({
   email:    z.string().email("Invalid email"),
   password: z.string().min(6, "Password min 6 chars"),
 });
 
 const CheckInSchema = z.object({
-  timezone: z.string().default("UTC"),
+  timezone: TimezoneSchema.default("UTC"),
   notes:    z.string().max(500).optional(),
 });
 
 const CheckOutSchema = z.object({
-  timezone: z.string().default("UTC"),
+  timezone: TimezoneSchema.default("UTC"),
   notes:    z.string().max(500).optional(),
 });
 
@@ -22,9 +35,9 @@ const ManualAttendanceSchema = z
   .object({
     userId:       z.coerce.number().int().positive(),
     date:         z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    checkInTime:  z.string().regex(/^\d{2}:\d{2}$/),
-    checkOutTime: z.string().regex(/^\d{2}:\d{2}$/).optional().or(z.literal("")),
-    timezone:     z.string().default("UTC"),
+    checkInTime:  TimeStringSchema,
+    checkOutTime: TimeStringSchema.optional().or(z.literal("")),
+    timezone:     TimezoneSchema.default("UTC"),
     notes:        z.string().max(500).optional(),
   })
   .refine(d => !d.checkOutTime || d.checkOutTime > d.checkInTime, {

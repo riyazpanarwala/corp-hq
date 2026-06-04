@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAuthContext } from "@/components/providers/AuthProvider";
 import { Card, Badge, Avatar, SectionHeader, Skeleton, Btn, Modal, Field, ToastStack, useToast } from "@/components/ui";
-import { formatTime, resolveAttStatus, empColor, empInitials } from "@/lib/utils";
+import { formatTime, resolveAttStatus, empColor, empInitials, todayStr } from "@/lib/utils";
 
 const EMPTY_FORM = {
   name: "",
@@ -28,7 +28,7 @@ export default function AdminEmployeesPage() {
   const [removing,  setRemoving]  = useState(false);
   const { toasts, toast, remove } = useToast();
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayStr();
 
   const fetchAll = useCallback(async () => {
     const [usersRes, todayRes] = await Promise.all([
