@@ -5,12 +5,14 @@ import { useAuthContext } from "@/components/providers/AuthProvider";
 import { Card, Table, Badge, Btn, SectionHeader, Skeleton, Avatar, Modal, Field, ToastStack, useToast } from "@/components/ui";
 import { formatTime, formatDate, formatHours, resolveAttStatus, downloadCSV, empColor, empInitials, todayStr } from "@/lib/utils";
 
+const defaultTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
 const defaultTimeForm = (date) => ({
   userId: "",
   date,
   checkInTime: "09:30",
   checkOutTime: "18:30",
-  timezone: "Asia/Kolkata",
+  timezone: defaultTimezone(),
   notes: "",
 });
 
