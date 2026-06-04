@@ -73,8 +73,8 @@ export default function EmployeeAttendancePage() {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 14 }}>
           {[
-            { label: "Check In",    value: formatTime(todayRec?.checkIn) },
-            { label: "Check Out",   value: formatTime(todayRec?.checkOut) },
+            { label: "Check In",    value: formatTime(todayRec?.checkIn, todayRec?.checkInTz) },
+            { label: "Check Out",   value: formatTime(todayRec?.checkOut, todayRec?.checkOutTz || todayRec?.checkInTz) },
             { label: "Hours",       value: isIn && elapsed ? formatHours(elapsed) : formatHours(todayRec?.hoursWorked) },
           ].map(c => (
             <div key={c.label} style={{ background: "var(--surface2)", borderRadius: "var(--radius-sm)", padding: "10px 12px", textAlign: "center" }}>
@@ -100,8 +100,8 @@ export default function EmployeeAttendancePage() {
           <Table
             cols={[
               { key: "date",     label: "Date",      render: r => formatDate(r.date) },
-              { key: "checkIn",  label: "Check In",  render: r => formatTime(r.checkIn) },
-              { key: "checkOut", label: "Check Out", render: r => formatTime(r.checkOut) },
+              { key: "checkIn",  label: "Check In",  render: r => formatTime(r.checkIn, r.checkInTz) },
+              { key: "checkOut", label: "Check Out", render: r => formatTime(r.checkOut, r.checkOutTz || r.checkInTz) },
               { key: "hours",    label: "Hours",     render: r => formatHours(r.hoursWorked) },
               { key: "late",     label: "Late By",   render: r => r.isLate ? <span style={{color:"var(--warning)"}}>+{r.lateMinutes}m</span> : "—" },
               { key: "status",   label: "Status",    render: r => <Badge status={resolveAttStatus(r)} /> },

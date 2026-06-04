@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAuthContext } from "@/components/providers/AuthProvider";
 import { Card, StatCard, Badge, Avatar, SectionHeader, Skeleton, EmpCell } from "@/components/ui";
-import { formatTime, formatDate, resolveAttStatus, empColor, empInitials } from "@/lib/utils";
+import { formatTime, formatDate, resolveAttStatus, empColor, empInitials, todayStr } from "@/lib/utils";
 
 export default function AdminDashboardPage() {
   const { authFetch, socketOn } = useAuthContext();
@@ -13,7 +13,7 @@ export default function AdminDashboardPage() {
   const [activity, setActivity] = useState([]);
   const [pending,  setPending]  = useState([]);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayStr();
 
   const fetchAll = useCallback(async () => {
     try {
@@ -82,7 +82,7 @@ export default function AdminDashboardPage() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600 }} className="truncate">{emp?.name}</div>
                     <div style={{ fontSize: 11, color: "var(--text3)" }}>
-                      {r.checkOut ? "Checked out" : "Checked in"} · {r.date} {r.checkOut ? formatTime(r.checkOut) : formatTime(r.checkIn)}
+                      {r.checkOut ? "Checked out" : "Checked in"} · {r.date} {r.checkOut ? formatTime(r.checkOut, r.checkOutTz || r.checkInTz) : formatTime(r.checkIn, r.checkInTz)}
                     </div>
                   </div>
                   <Badge status={r.checkOut ? "checked-out" : "checkedin"} />
@@ -108,7 +108,7 @@ export default function AdminDashboardPage() {
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
                     <Badge status={rec ? resolveAttStatus(rec) : "absent"} />
-                    {rec && <span style={{ fontSize: 10, color: "var(--text3)" }}>{formatTime(rec.checkIn)}</span>}
+                    {rec && <span style={{ fontSize: 10, color: "var(--text3)" }}>{formatTime(rec.checkIn, rec.checkInTz)}</span>}
                   </div>
                 </div>
               );
@@ -162,3 +162,4 @@ function DashboardSkeleton() {
     </div>
   );
 }
+

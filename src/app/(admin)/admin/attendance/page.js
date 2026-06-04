@@ -2,8 +2,19 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { useAuthContext } from "@/components/providers/AuthProvider";
-import { Card, Table, Badge, Btn, SectionHeader, Skeleton, Avatar } from "@/components/ui";
-import { formatTime, formatDate, formatHours, resolveAttStatus, downloadCSV, empColor, empInitials } from "@/lib/utils";
+import { Card, Table, Badge, Btn, SectionHeader, Skeleton, Avatar, Modal, Field, ToastStack, useToast } from "@/components/ui";
+import { formatTime, formatDate, formatHours, resolveAttStatus, downloadCSV, empColor, empInitials, todayStr } from "@/lib/utils";
+
+const defaultTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+const defaultTimeForm = (date) => ({
+  userId: "",
+  date,
+  checkInTime: "09:30",
+  checkOutTime: "18:30",
+  timezone: defaultTimezone(),
+  notes: "",
+});
 
 export default function AdminAttendancePage() {
   const { authFetch, socketOn } = useAuthContext();
@@ -11,8 +22,13 @@ export default function AdminAttendancePage() {
   const [users,   setUsers]   = useState([]);
   const [total,   setTotal]   = useState(0);
   const [loading, setLoading] = useState(true);
+  const [showTimeForm, setShowTimeForm] = useState(false);
+  const [timeForm, setTimeForm] = useState(() => defaultTimeForm(todayStr()));
+  const [timeError, setTimeError] = useState("");
+  const [savingTime, setSavingTime] = useState(false);
+  const { toasts, toast, remove } = useToast();
   const [filters, setFilters] = useState({
-    date:   new Date().toISOString().split("T")[0],
+    date:   todayStr(),
     userId: "all",
     status: "all",
     page:   1,
@@ -52,7 +68,7 @@ export default function AdminAttendancePage() {
     const headers = ["Date","Employee","Department","Check In","Check Out","Hours","Status","Late (min)"];
     const rows    = records.map(r => [
       r.date, r.user?.name, r.user?.department,
-      formatTime(r.checkIn), formatTime(r.checkOut),
+      formatTime(r.checkIn, r.checkInTz), formatTime(r.checkOut, r.checkOutTz || r.checkInTz),
       formatHours(r.hoursWorked),
       r.isLate ? "Late" : r.isHalfDay ? "Half Day" : "Present",
       r.lateMinutes || 0,
@@ -61,6 +77,55 @@ export default function AdminAttendancePage() {
   };
 
   const set = (key, val) => setFilters(f => ({ ...f, [key]: val, page: 1 }));
+  const setTimeField = (key, val) => {
+    setTimeForm(f => {
+      const next = { ...f, [key]: val };
+      if (key === "userId") {
+        const selected = users.find(u => String(u.id) === String(val));
+        if (selected?.timezone) next.timezone = selected.timezone;
+      }
+      return next;
+    });
+    if (timeError) setTimeError("");
+  };
+
+  const openTimeForm = () => {
+    setTimeForm(defaultTimeForm(filters.date || todayStr()));
+    setTimeError("");
+    setShowTimeForm(true);
+  };
+
+  const saveTimeDetails = async (e) => {
+    e.preventDefault();
+    setTimeError("");
+
+    if (!timeForm.userId || !timeForm.date || !timeForm.checkInTime) {
+      setTimeError("Employee, date, and check-in time are required.");
+      return;
+    }
+
+    setSavingTime(true);
+    try {
+      const res = await authFetch("/api/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(timeForm),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error || "Could not save time details.");
+      }
+
+      await fetchRecords();
+      toast("Time details saved.", "success");
+      setShowTimeForm(false);
+    } catch (err) {
+      setTimeError(err.message || "Could not save time details.");
+    } finally {
+      setSavingTime(false);
+    }
+  };
 
   const cols = [
     {
@@ -76,10 +141,10 @@ export default function AdminAttendancePage() {
       ),
     },
     { key: "date",     label: "Date",      render: r => formatDate(r.date) },
-    { key: "checkIn",  label: "Check In",  render: r => formatTime(r.checkIn) },
-    { key: "checkOut", label: "Check Out", render: r => formatTime(r.checkOut) },
+    { key: "checkIn",  label: "Check In",  render: r => formatTime(r.checkIn, r.checkInTz) },
+    { key: "checkOut", label: "Check Out", render: r => formatTime(r.checkOut, r.checkOutTz || r.checkInTz) },
     { key: "hours",    label: "Hours",     render: r => formatHours(r.hoursWorked) },
-    { key: "late",     label: "Late By",   render: r => r.isLate ? <span style={{color:"var(--warning)"}}>+{r.lateMinutes}m</span> : "—" },
+    { key: "late",     label: "Late By",   render: r => r.isLate ? <span style={{color:"var(--warning)"}}>+{r.lateMinutes}m</span> : "-" },
     { key: "status",   label: "Status",    render: r => <Badge status={resolveAttStatus(r)} /> },
   ];
 
@@ -88,7 +153,12 @@ export default function AdminAttendancePage() {
       <SectionHeader
         title="Attendance Records"
         subtitle={`${total} records`}
-        action={<Btn onClick={handleExport} variant="secondary" size="sm">📥 Export CSV</Btn>}
+        action={
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Btn onClick={openTimeForm} size="sm">+ Add Time</Btn>
+            <Btn onClick={handleExport} variant="secondary" size="sm">Export CSV</Btn>
+          </div>
+        }
       />
 
       <Card style={{ padding: 16 }}>
@@ -112,6 +182,50 @@ export default function AdminAttendancePage() {
           <Table cols={cols} rows={records} emptyMsg="No records match your filters." />
         )}
       </Card>
+
+      {showTimeForm && (
+        <Modal title="Add Employee Time" onClose={() => !savingTime && setShowTimeForm(false)} width={560}>
+          <form onSubmit={saveTimeDetails} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 14 }}>
+              <Field label="Employee">
+                <select value={timeForm.userId} onChange={e => setTimeField("userId", e.target.value)}>
+                  <option value="">Select employee</option>
+                  {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Date">
+                <input type="date" value={timeForm.date} onChange={e => setTimeField("date", e.target.value)} />
+              </Field>
+              <Field label="Check in">
+                <input type="time" value={timeForm.checkInTime} onChange={e => setTimeField("checkInTime", e.target.value)} />
+              </Field>
+              <Field label="Check out">
+                <input type="time" value={timeForm.checkOutTime} onChange={e => setTimeField("checkOutTime", e.target.value)} />
+              </Field>
+              <Field label="Timezone">
+                <input value={timeForm.timezone} onChange={e => setTimeField("timezone", e.target.value)} />
+              </Field>
+            </div>
+
+            <Field label="Notes">
+              <textarea rows={3} value={timeForm.notes} onChange={e => setTimeField("notes", e.target.value)} placeholder="Reason or correction note" style={{ resize: "vertical" }} />
+            </Field>
+
+            {timeError && (
+              <div style={{ color: "var(--danger)", fontSize: 13, fontWeight: 600 }}>
+                {timeError}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <Btn variant="ghost" onClick={() => setShowTimeForm(false)} disabled={savingTime}>Cancel</Btn>
+              <Btn type="submit" loading={savingTime}>Save Time</Btn>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      <ToastStack toasts={toasts} remove={remove} />
     </div>
   );
 }
