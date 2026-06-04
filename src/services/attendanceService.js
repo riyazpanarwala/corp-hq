@@ -46,11 +46,13 @@ function dateStringInZone(date, timeZone) {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+function workDateFromString(date) {
+  return new Date(`${date}T00:00:00.000Z`);
+}
+
 const attendanceService = {
-  todayDate() {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
+  todayDate(timeZone = "UTC") {
+    return workDateFromString(dateStringInZone(new Date(), timeZone));
   },
 
   async getConfig() {
@@ -77,7 +79,7 @@ const attendanceService = {
   },
 
   async checkIn(userId, { timezone, notes }) {
-    const today  = this.todayDate();
+    const today  = this.todayDate(timezone);
     const cfg    = await this.getConfig();
     const exists = await db.attendance.findUnique({
       where: { userId_date: { userId, date: today } },
@@ -115,7 +117,7 @@ const attendanceService = {
   },
 
   async checkOut(userId, { timezone, notes }) {
-    const today  = this.todayDate();
+    const today  = this.todayDate(timezone);
     const cfg    = await this.getConfig();
     const record = await db.attendance.findUnique({
       where: { userId_date: { userId, date: today } },
@@ -149,9 +151,18 @@ const attendanceService = {
     return updated;
   },
 
-  async getTodayRecord(userId) {
+  async getTodayRecord(userId, timezone) {
+    let timeZone = timezone;
+    if (!timeZone) {
+      const user = await db.user.findUnique({
+        where:  { id: userId },
+        select: { timezone: true },
+      });
+      timeZone = user?.timezone || "UTC";
+    }
+
     return db.attendance.findUnique({
-      where: { userId_date: { userId, date: this.todayDate() } },
+      where: { userId_date: { userId, date: this.todayDate(timeZone) } },
     });
   },
 
@@ -163,7 +174,7 @@ const attendanceService = {
     });
     if (!employee) throw new ApiError("Employee not found", 404);
 
-    const workDate = new Date(`${date}T00:00:00.000Z`);
+    const workDate = workDateFromString(date);
     const checkIn  = zonedDateTimeToUtc(date, checkInTime, timezone);
     const checkOut = checkOutTime ? zonedDateTimeToUtc(date, checkOutTime, timezone) : null;
 
