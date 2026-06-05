@@ -3,22 +3,15 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthContext } from "@/components/providers/AuthProvider";
-import { Btn, Divider, Spinner } from "@/components/ui";
-
-const DEMO = [
-  { email: "sarah@corp.io",  name: "Sarah Chen",   role: "Admin",    initials: "SC", color: "#4f8ef7" },
-  { email: "marcus@corp.io", name: "Marcus Webb",  role: "Employee", initials: "MW", color: "#7c5cfc" },
-  { email: "priya@corp.io",  name: "Priya Sharma", role: "Employee", initials: "PS", color: "#22d3a5" },
-  { email: "jordan@corp.io", name: "Jordan Lee",   role: "Employee", initials: "JL", color: "#f5a623" },
-];
+import { Btn, Spinner } from "@/components/ui";
 
 export default function LoginPage() {
   const router = useRouter();
   const { login, isLoading, isHydrated, isLoggedIn, isAdmin } = useAuthContext();
-  const [email,    setEmail]    = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error,    setError]    = useState("");
-  const [mounted,  setMounted]  = useState(false);
+  const [error, setError] = useState("");
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -110,18 +103,6 @@ export default function LoginPage() {
           )}
           <Btn type="submit" loading={isLoading} size="lg" style={{ width: "100%", justifyContent: "center", marginTop: 4 }}>Sign In →</Btn>
         </form>
-
-        <div style={{ marginTop: 28 }}>
-          <Divider label="Quick Demo Login" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
-            {DEMO.map(acc => (
-              <DemoCard key={acc.email} account={acc} onSelect={() => { setEmail(acc.email); setPassword("password123"); setError(""); }} />
-            ))}
-          </div>
-          <p style={{ fontSize: 11, color: "var(--text3)", marginTop: 12, textAlign: "center" }}>
-            All demo accounts: password <code style={{ color: "var(--accent)" }}>password123</code>
-          </p>
-        </div>
       </div>
 
       <style>{`@media(min-width:860px){.login-left{display:flex!important}}`}</style>
