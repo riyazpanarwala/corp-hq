@@ -2,12 +2,39 @@
 import { db } from "@/lib/db";
 import { signAccessToken, signRefreshToken, refreshTokenExpiry, handleApiError } from "@/lib/auth";
 import { LoginSchema } from "@/lib/validations";
+import { rateLimit, getClientIp } from "@/lib/rateLimit";
 import bcrypt      from "bcryptjs";
 import { cookies } from "next/headers";
 
 const DUMMY_HASH = "$2b$12$invalidsaltXXXXXXXXXXXXXXinvalidhashXXXXXXXXXXXXXXX";
 
 export async function POST(request) {
+  // ── Rate limit check ────────────────────────────────────────────────────────
+  // Key on IP so each client has its own attempt bucket.
+  // We check BEFORE parsing the body — no point doing any work if blocked.
+  const ip  = getClientIp(request);
+  const key = `login:${ip}`;
+
+  // Initial check (success=false, we haven't verified credentials yet)
+  const limitCheck = rateLimit(key);
+  if (!limitCheck.allowed) {
+    return Response.json(
+      {
+        error: `Too many failed login attempts. Please try again in ${Math.ceil(limitCheck.retryAfter / 60)} minute(s).`,
+        retryAfter: limitCheck.retryAfter,
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After":       String(limitCheck.retryAfter),
+          "X-RateLimit-Limit": String(10),
+          "X-RateLimit-Remaining": "0",
+        },
+      },
+    );
+  }
+  // ────────────────────────────────────────────────────────────────────────────
+
   try {
     const body = await request.json();
     const { email, password } = LoginSchema.parse(body);
@@ -20,8 +47,26 @@ export async function POST(request) {
     const passwordMatch = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
 
     if (!user || !passwordMatch) {
-      return Response.json({ error: "Invalid email or password" }, { status: 401 });
+      // Failed attempt — rateLimit already incremented above on the initial
+      // check (attempts: 1). For clarity we don't double-count; the initial
+      // call above already recorded this attempt in the bucket.
+      return Response.json(
+        {
+          error: "Invalid email or password",
+          // Inform the client how many attempts remain so the UI can warn them
+          attemptsRemaining: limitCheck.remaining,
+        },
+        {
+          status: 401,
+          headers: {
+            "X-RateLimit-Remaining": String(limitCheck.remaining),
+          },
+        },
+      );
     }
+
+    // ── Successful login → reset the rate-limit bucket for this IP ────────────
+    rateLimit(key, true /* success */);
 
     const { passwordHash, ...safeUser } = user;
 
@@ -33,8 +78,8 @@ export async function POST(request) {
         userId:       user.id,
         refreshToken,
         expiresAt:    refreshTokenExpiry(),
-        ipAddress:    request.headers.get("x-forwarded-for") ?? undefined,
-        userAgent:    request.headers.get("user-agent")      ?? undefined,
+        ipAddress:    ip,
+        userAgent:    request.headers.get("user-agent") ?? undefined,
       },
     });
 
