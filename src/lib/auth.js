@@ -81,12 +81,16 @@ class ApiError extends Error {
   }
 }
 
+// FIX (handleApiError): Previously returned HTTP 400 for all unexpected errors
+// (database failures, Prisma errors, uncaught exceptions).  400 means "Bad
+// Request" — a client-side problem — so clients had no way to distinguish
+// "you sent bad data" from "the server broke".  Unknown errors now return 500.
 function handleApiError(err) {
   if (err instanceof ApiError) {
     return Response.json({ error: err.message, code: err.code }, { status: err.status });
   }
   console.error("[API Error]", err);
-  return Response.json({ error: err.message || "Server error" }, { status: 400 });
+  return Response.json({ error: "Internal server error" }, { status: 500 });
 }
 
 module.exports = {

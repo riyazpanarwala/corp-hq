@@ -24,32 +24,74 @@ const leaveService = {
     const days = countWorkingDays(startDate, endDate);
     if (days === 0) throw new ApiError("No working days in selected range");
 
-    const balance = await db.leaveBalance.findUnique({ where: { userId } });
-    if (!balance) throw new ApiError("Leave balance not found", 404);
-
-    const cols  = COLS[type];
-    const avail = balance[cols.total] - balance[cols.used] - balance[cols.pending];
-    if (days > avail) {
-      throw new ApiError(
-        `Insufficient ${type} balance. Available: ${avail}, Requested: ${days}`,
-        422,
-        "INSUFFICIENT_BALANCE",
-      );
-    }
-
-    const start   = new Date(startDate);
-    const end     = new Date(endDate);
-    const overlap = await db.leaveRequest.findFirst({
-      where: {
-        userId,
-        status:    { in: ["PENDING", "APPROVED"] },
-        startDate: { lte: end },
-        endDate:   { gte: start },
-      },
-    });
-    if (overlap) throw new ApiError("Overlapping leave request exists", 409, "OVERLAP");
-
+    // FIX (race condition): The original code read the balance BEFORE the
+    // transaction, then used the stale snapshot in an optimistic-lock WHERE
+    // clause inside the transaction.  The condition was:
+    //
+    //   pending <= total - used - days
+    //
+    // …which is weaker than required: two concurrent requests for N days each
+    // against an available balance of N could both pass the check because each
+    // sees the pre-increment value of `pending`.
+    //
+    // New approach: re-read and lock the balance ROW inside the transaction
+    // using a raw SELECT … FOR UPDATE, then perform the availability check
+    // against the locked, current values before writing.  Any concurrent
+    // transaction will block on the FOR UPDATE until we commit, eliminating
+    // the race entirely.
+    //
+    // Prisma doesn't expose SELECT FOR UPDATE via its fluent API, so we use
+    // $queryRaw.  The result is a plain object array — map it manually.
     const leave = await db.$transaction(async (tx) => {
+      // Lock the row for the duration of this transaction.
+      // We select all balance columns in a single FOR UPDATE query so we can
+      // read the live values under the lock without a separate Prisma call.
+      // $queryRaw only supports primitive interpolations, so we select all
+      // columns and pick the right ones by type below.
+      const rows = await tx.$queryRaw`
+        SELECT id,
+               cl_total, cl_used, cl_pending,
+               sl_total, sl_used, sl_pending,
+               pl_total, pl_used, pl_pending
+        FROM leave_balances
+        WHERE user_id = ${userId}
+        FOR UPDATE
+      `;
+
+      if (!rows || rows.length === 0) {
+        throw new ApiError("Leave balance not found", 404);
+      }
+
+      const cols  = COLS[type];
+      const bal   = rows[0];
+      // Prisma raw results use snake_case DB column names;
+      // the type key is e.g. "CL" → prefix "cl"
+      const prefix    = type.toLowerCase();
+      const dbTotal   = Number(bal[`${prefix}_total`]);
+      const dbUsed    = Number(bal[`${prefix}_used`]);
+      const dbPending = Number(bal[`${prefix}_pending`]);
+      const avail     = dbTotal - dbUsed - dbPending;
+
+      if (days > avail) {
+        throw new ApiError(
+          `Insufficient ${type} balance. Available: ${avail}, Requested: ${days}`,
+          422,
+          "INSUFFICIENT_BALANCE",
+        );
+      }
+
+      const start   = new Date(startDate);
+      const end     = new Date(endDate);
+      const overlap = await tx.leaveRequest.findFirst({
+        where: {
+          userId,
+          status:    { in: ["PENDING", "APPROVED"] },
+          startDate: { lte: end },
+          endDate:   { gte: start },
+        },
+      });
+      if (overlap) throw new ApiError("Overlapping leave request exists", 409, "OVERLAP");
+
       const req = await tx.leaveRequest.create({
         data: {
           userId,
@@ -65,23 +107,11 @@ const leaveService = {
         },
       });
 
-      const updated = await tx.leaveBalance.updateMany({
-        where: {
-          userId,
-          [cols.pending]: {
-            lte: balance[cols.total] - balance[cols.used] - days,
-          },
-        },
-        data: { [cols.pending]: { increment: days } },
+      // Increment pending using a direct UPDATE — safe because the row is locked
+      await tx.leaveBalance.update({
+        where: { userId },
+        data:  { [cols.pending]: { increment: days } },
       });
-
-      if (updated.count === 0) {
-        throw new ApiError(
-          "Balance was updated by a concurrent request — please retry",
-          409,
-          "CONCURRENT_BALANCE_CONFLICT",
-        );
-      }
 
       return req;
     });
