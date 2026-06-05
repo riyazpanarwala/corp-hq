@@ -16,6 +16,10 @@ export default function AdminLeavesPage() {
   const [review,  setReview]  = useState(null);
   const [note,    setNote]    = useState("");
   const [loading, setLoading] = useState(true);
+  // FIX: track which action ("APPROVED" | "REJECTED" | null) is in-flight so
+  // each button can show its own spinner independently and both are disabled
+  // while either is processing.
+  const [reviewingAction, setReviewingAction] = useState(null);
 
   const fetchLeaves = useCallback(async () => {
     setLoading(true);
@@ -38,15 +42,30 @@ export default function AdminLeavesPage() {
     return off;
   }, [socketOn, fetchLeaves]);
 
+  // FIX: accept the action explicitly so we know which button to spin.
+  // Both buttons are disabled while reviewingAction is set, preventing
+  // double-submits and accidental clicks on the wrong action.
   const handleReview = async (action) => {
-    if (!review) return;
-    await authFetch(`/api/leaves/${review.id}`, {
-      method: "PATCH",
-      body:   JSON.stringify({ action, reviewNote: note }),
-    });
+    if (!review || reviewingAction) return;
+    setReviewingAction(action);
+    try {
+      await authFetch(`/api/leaves/${review.id}`, {
+        method: "PATCH",
+        body:   JSON.stringify({ action, reviewNote: note }),
+      });
+      setReview(null);
+      setNote("");
+      fetchLeaves();
+    } finally {
+      setReviewingAction(null);
+    }
+  };
+
+  const closeReview = () => {
+    // FIX: prevent closing the modal while a review is in-flight
+    if (reviewingAction) return;
     setReview(null);
     setNote("");
-    fetchLeaves();
   };
 
   const TABS = [
@@ -75,7 +94,7 @@ export default function AdminLeavesPage() {
     { key: "reason", label: "Reason", render: r => <span className="truncate" style={{ color: "var(--text2)", maxWidth: 160, display: "block" }}>{r.reason}</span> },
     { key: "status", label: "Status", render: r => <Badge status={r.status?.toLowerCase()} /> },
     { key: "action", label: "Action", render: r => r.status === "PENDING"
-      ? <Btn size="xs" variant="secondary" onClick={() => { setReview(r); setNote(""); }}>Review</Btn>
+      ? <Btn size="xs" variant="secondary" onClick={() => { setReview(r); setNote(""); setReviewingAction(null); }}>Review</Btn>
       : (r.reviewNote ? <span style={{ fontSize: 12, color: "var(--text3)", maxWidth: 140, display: "block" }} className="truncate">{r.reviewNote}</span> : "—")
     },
   ];
@@ -89,7 +108,7 @@ export default function AdminLeavesPage() {
       </Card>
 
       {review && (
-        <Modal title="Review Leave Request" onClose={() => { setReview(null); setNote(""); }}>
+        <Modal title="Review Leave Request" onClose={closeReview}>
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
             <div style={{ padding: 16, background: "var(--surface2)", borderRadius: "var(--radius-md)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
@@ -112,11 +131,37 @@ export default function AdminLeavesPage() {
               <div style={{ marginTop: 10, fontSize: 13 }}><span style={{ color: "var(--text2)" }}>Reason: </span>{review.reason}</div>
             </div>
             <Field label="Review Note (optional)">
-              <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder="Add a note for the employee…" style={{ resize: "none" }} />
+              <textarea
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                rows={2}
+                placeholder="Add a note for the employee…"
+                style={{ resize: "none" }}
+                // FIX: lock the textarea while a review is in-flight
+                disabled={!!reviewingAction}
+              />
             </Field>
             <div style={{ display: "flex", gap: 10 }}>
-              <Btn variant="danger"  onClick={() => handleReview("REJECTED")} style={{ flex: 1, justifyContent: "center" }}>❌ Reject</Btn>
-              <Btn variant="success" onClick={() => handleReview("APPROVED")} style={{ flex: 1, justifyContent: "center" }}>✅ Approve</Btn>
+              {/* FIX: each button shows its own spinner via loading prop;
+                  both are disabled while either action is in-flight */}
+              <Btn
+                variant="danger"
+                loading={reviewingAction === "REJECTED"}
+                disabled={!!reviewingAction}
+                onClick={() => handleReview("REJECTED")}
+                style={{ flex: 1, justifyContent: "center" }}
+              >
+                ❌ Reject
+              </Btn>
+              <Btn
+                variant="success"
+                loading={reviewingAction === "APPROVED"}
+                disabled={!!reviewingAction}
+                onClick={() => handleReview("APPROVED")}
+                style={{ flex: 1, justifyContent: "center" }}
+              >
+                ✅ Approve
+              </Btn>
             </div>
           </div>
         </Modal>

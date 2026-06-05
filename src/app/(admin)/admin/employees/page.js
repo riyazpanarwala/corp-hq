@@ -188,7 +188,18 @@ export default function AdminEmployeesPage() {
                 <span style={{ fontSize: 11, color: "var(--text3)" }}>{emp.timezone}</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <Badge status={emp.role.toLowerCase()} />
-                  <Btn variant="ghost" size="xs" onClick={() => setRemoveEmp(emp)}>Remove</Btn>
+                  {/* FIX: show a spinner on the exact card being removed and
+                      disable all Remove buttons while any removal is in-flight,
+                      preventing multiple simultaneous delete requests. */}
+                  <Btn
+                    variant="ghost"
+                    size="xs"
+                    loading={removeEmp?.id === emp.id && removing}
+                    disabled={removing}
+                    onClick={() => setRemoveEmp(emp)}
+                  >
+                    Remove
+                  </Btn>
                 </div>
               </div>
             </Card>
@@ -227,6 +238,7 @@ export default function AdminEmployeesPage() {
             )}
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 4 }}>
+              {/* FIX: disable Cancel while save is in-flight */}
               <Btn variant="ghost" onClick={closeAdd} disabled={saving}>Cancel</Btn>
               <Btn type="submit" loading={saving}>Add Employee</Btn>
             </div>
@@ -245,6 +257,7 @@ export default function AdminEmployeesPage() {
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              {/* FIX: disable Cancel while removal is in-flight */}
               <Btn variant="ghost" onClick={() => setRemoveEmp(null)} disabled={removing}>Cancel</Btn>
               <Btn variant="danger" loading={removing} onClick={removeEmployee}>Remove Employee</Btn>
             </div>
@@ -256,4 +269,3 @@ export default function AdminEmployeesPage() {
     </div>
   );
 }
-

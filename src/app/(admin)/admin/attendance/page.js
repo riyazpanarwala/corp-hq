@@ -95,6 +95,13 @@ export default function AdminAttendancePage() {
     setShowTimeForm(true);
   };
 
+  // FIX: closeTimeForm respects the in-flight guard so the modal can't be
+  // dismissed (via the × button) while a save is in progress.
+  const closeTimeForm = () => {
+    if (savingTime) return;
+    setShowTimeForm(false);
+  };
+
   const saveTimeDetails = async (e) => {
     e.preventDefault();
     setTimeError("");
@@ -184,7 +191,7 @@ export default function AdminAttendancePage() {
       </Card>
 
       {showTimeForm && (
-        <Modal title="Add Employee Time" onClose={() => !savingTime && setShowTimeForm(false)} width={560}>
+        <Modal title="Add Employee Time" onClose={closeTimeForm} width={560}>
           <form onSubmit={saveTimeDetails} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 14 }}>
               <Field label="Employee">
@@ -218,7 +225,8 @@ export default function AdminAttendancePage() {
             )}
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-              <Btn variant="ghost" onClick={() => setShowTimeForm(false)} disabled={savingTime}>Cancel</Btn>
+              {/* FIX: Cancel disabled while save is in-flight */}
+              <Btn variant="ghost" onClick={closeTimeForm} disabled={savingTime}>Cancel</Btn>
               <Btn type="submit" loading={savingTime}>Save Time</Btn>
             </div>
           </form>
