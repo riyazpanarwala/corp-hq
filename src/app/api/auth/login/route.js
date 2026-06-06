@@ -8,37 +8,52 @@ import { cookies } from "next/headers";
 
 const DUMMY_HASH = "$2b$12$invalidsaltXXXXXXXXXXXXXXinvalidhashXXXXXXXXXXXXXXX";
 
+function blockedResponse(gate) {
+  return Response.json(
+    {
+      error:      `Too many failed login attempts. Please try again in ${Math.ceil(gate.retryAfter / 60)} minute(s).`,
+      retryAfter: gate.retryAfter,
+    },
+    {
+      status: 429,
+      headers: {
+        "Retry-After":           String(gate.retryAfter),
+        "X-RateLimit-Limit":     String(MAX_ATTEMPTS),
+        "X-RateLimit-Remaining": "0",
+      },
+    },
+  );
+}
+
+function strictestResult(...results) {
+  return {
+    allowed:    results.every((result) => result.allowed),
+    remaining:  Math.min(...results.map((result) => result.remaining)),
+    retryAfter: Math.max(...results.map((result) => result.retryAfter)),
+  };
+}
+
 export async function POST(request) {
-  const ip  = getClientIp(request);
-  const key = `login:${ip}`;
+  const ip    = getClientIp(request);
+  const ipKey = `login:ip:${ip}`;
 
   // ── 1. Peek — reject already-blocked IPs before doing ANY work ────────────
   // peek() is read-only: it never increments the attempt counter.
   // This means a DB outage or JSON parse error below will NOT burn an attempt.
-  const gate = peek(key);
-  if (!gate.allowed) {
-    return Response.json(
-      {
-        error:      `Too many failed login attempts. Please try again in ${Math.ceil(gate.retryAfter / 60)} minute(s).`,
-        retryAfter: gate.retryAfter,
-      },
-      {
-        status: 429,
-        headers: {
-          "Retry-After":           String(gate.retryAfter),
-          "X-RateLimit-Limit":     String(MAX_ATTEMPTS),
-          "X-RateLimit-Remaining": "0",
-        },
-      },
-    );
-  }
+  const ipGate = peek(ipKey);
+  if (!ipGate.allowed) return blockedResponse(ipGate);
 
   try {
     const body = await request.json();
     const { email, password } = LoginSchema.parse(body);
+    const normalizedEmail = email.toLowerCase().trim();
+    const credentialKey = `login:credential:${ip}:${normalizedEmail}`;
+
+    const credentialGate = peek(credentialKey);
+    if (!credentialGate.allowed) return blockedResponse(credentialGate);
 
     const user = await db.user.findUnique({
-      where:  { email: email.toLowerCase().trim(), isActive: true },
+      where:  { email: normalizedEmail, isActive: true },
       select: {
         id: true, email: true, name: true, role: true,
         department: true, designation: true, timezone: true,
@@ -52,17 +67,17 @@ export async function POST(request) {
       // ── 2. consume() — only called on a confirmed wrong-password failure ──
       // Server errors (parse, DB) above would have thrown and been caught
       // below, so this line is only reached on genuine bad credentials.
-      const result = consume(key);
+      const result = strictestResult(consume(ipKey), consume(credentialKey));
       return Response.json(
         {
           error:             "Invalid email or password",
           attemptsRemaining: result.remaining,
           // Surface a block warning when they're about to hit the limit
           ...(result.remaining <= 3 && result.remaining > 0 && {
-            warning: `${result.remaining} attempt${result.remaining !== 1 ? "s" : ""} remaining before your IP is temporarily blocked.`,
+            warning: `${result.remaining} attempt${result.remaining !== 1 ? "s" : ""} remaining before login is temporarily blocked.`,
           }),
           ...(!result.allowed && {
-            warning: `Too many failed attempts. Your IP is now blocked for ${Math.ceil(result.retryAfter / 60)} minute(s).`,
+            warning: `Too many failed attempts. Login is now blocked for ${Math.ceil(result.retryAfter / 60)} minute(s).`,
           }),
         },
         {
@@ -75,8 +90,10 @@ export async function POST(request) {
       );
     }
 
-    // ── 3. reset() — clear the bucket on successful login ─────────────────
-    reset(key);
+    // ── 3. reset() — clear only this credential bucket on success ─────────
+    // Keep the coarse IP bucket intact so one valid account cannot erase
+    // failures against every account behind the same address.
+    reset(credentialKey);
 
     const { passwordHash, ...safeUser } = user;
 

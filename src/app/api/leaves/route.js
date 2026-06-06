@@ -33,6 +33,9 @@ export async function POST(request) {
   try {
     const user = getCurrentUser(request);
     const body = await request.json();
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return Response.json({ error: "Invalid request body" }, { status: 422 });
+    }
 
     // Always resolve timezone server-side — never trust client input
     const stored = await db.user.findUnique({
