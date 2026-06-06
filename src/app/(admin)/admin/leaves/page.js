@@ -2,7 +2,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { useAuthContext } from "@/components/providers/AuthProvider";
-import { Card, Table, Badge, Btn, Modal, Tabs, SectionHeader, Avatar, Field, Skeleton } from "@/components/ui";
+import { Card, Table, Badge, Btn, Modal, Tabs, SectionHeader, Avatar, Field, Skeleton, ToastStack, useToast } from "@/components/ui";
 import { formatDate, empColor, empInitials } from "@/lib/utils";
 
 const LEAVE_LABELS = { CL: "Casual Leave", SL: "Sick Leave", PL: "Paid Leave" };
@@ -16,10 +16,8 @@ export default function AdminLeavesPage() {
   const [review,  setReview]  = useState(null);
   const [note,    setNote]    = useState("");
   const [loading, setLoading] = useState(true);
-  // FIX: track which action ("APPROVED" | "REJECTED" | null) is in-flight so
-  // each button can show its own spinner independently and both are disabled
-  // while either is processing.
   const [reviewingAction, setReviewingAction] = useState(null);
+  const { toasts, toast, remove } = useToast();
 
   const fetchLeaves = useCallback(async () => {
     setLoading(true);
@@ -42,27 +40,39 @@ export default function AdminLeavesPage() {
     return off;
   }, [socketOn, fetchLeaves]);
 
-  // FIX: accept the action explicitly so we know which button to spin.
-  // Both buttons are disabled while reviewingAction is set, preventing
-  // double-submits and accidental clicks on the wrong action.
+  // FIX (silent failure): Previously the catch block was missing — any network
+  // error, server error, or "already reviewed" 409 was silently swallowed.
+  // The admin had no idea the action failed; the modal closed and nothing updated.
+  // Now errors are caught, displayed as a toast, and the modal stays open.
   const handleReview = async (action) => {
     if (!review || reviewingAction) return;
     setReviewingAction(action);
     try {
-      await authFetch(`/api/leaves/${review.id}`, {
+      const res  = await authFetch(`/api/leaves/${review.id}`, {
         method: "PATCH",
         body:   JSON.stringify({ action, reviewNote: note }),
       });
+      const data = await res.json();
+
+      if (!res.ok) {
+        // Surface the server error (e.g. "Leave has already been reviewed")
+        toast(data?.error || "Failed to process review. Please try again.", "error");
+        return;
+      }
+
+      // Success — close modal and refresh
       setReview(null);
       setNote("");
       fetchLeaves();
+      toast(action === "APPROVED" ? "Leave approved." : "Leave rejected.", "success");
+    } catch (err) {
+      toast(err.message || "Network error. Please try again.", "error");
     } finally {
       setReviewingAction(null);
     }
   };
 
   const closeReview = () => {
-    // FIX: prevent closing the modal while a review is in-flight
     if (reviewingAction) return;
     setReview(null);
     setNote("");
@@ -137,13 +147,10 @@ export default function AdminLeavesPage() {
                 rows={2}
                 placeholder="Add a note for the employee…"
                 style={{ resize: "none" }}
-                // FIX: lock the textarea while a review is in-flight
                 disabled={!!reviewingAction}
               />
             </Field>
             <div style={{ display: "flex", gap: 10 }}>
-              {/* FIX: each button shows its own spinner via loading prop;
-                  both are disabled while either action is in-flight */}
               <Btn
                 variant="danger"
                 loading={reviewingAction === "REJECTED"}
@@ -166,6 +173,8 @@ export default function AdminLeavesPage() {
           </div>
         </Modal>
       )}
+
+      <ToastStack toasts={toasts} remove={remove} />
     </div>
   );
 }

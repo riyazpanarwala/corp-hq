@@ -8,14 +8,13 @@ import { Btn, Spinner } from "@/components/ui";
 export default function LoginPage() {
   const router = useRouter();
   const { login, isLoading, isHydrated, isLoggedIn, isAdmin } = useAuthContext();
-  const [email, setEmail] = useState("");
+  const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [mounted, setMounted] = useState(false);
+  const [error,    setError]    = useState("");
+  const [mounted,  setMounted]  = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
 
-  // Redirect already-authenticated users away from the login page
   useEffect(() => {
     if (!isHydrated) return;
     if (isLoggedIn) {
@@ -31,7 +30,6 @@ export default function LoginPage() {
     if (!result.success) setError(result.error || "Login failed");
   };
 
-  // While hydrating or redirecting an already-logged-in user, show a spinner
   if (!mounted || (isHydrated && isLoggedIn)) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)" }}>
@@ -40,13 +38,12 @@ export default function LoginPage() {
     );
   }
 
-  // Still waiting for localStorage to be read
   if (!isHydrated) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", background: "var(--bg)" }}>
         <div style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", justifyContent: "center", padding: "40px 36px", margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 36 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,var(--accent),var(--accent2))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🏢</div>
+            <Logo size={36} />
             <span style={{ fontFamily: "Syne, sans-serif", fontWeight: 800, fontSize: 20 }}>CorpHQ</span>
           </div>
           <h2 style={{ fontFamily: "Syne, sans-serif", fontSize: 26, fontWeight: 800, lineHeight: 1.1 }}>Welcome back</h2>
@@ -118,24 +115,9 @@ function Logo({ size = 36 }) {
   );
 }
 
-function DemoCard({ account, onSelect }) {
-  const [hov, setHov] = useState(false);
-  return (
-    <button type="button" onClick={onSelect} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: "var(--radius-md)", cursor: "pointer", textAlign: "left", width: "100%", background: hov ? "var(--surface2)" : "var(--surface)", border: "1px solid var(--border)", transition: "background .15s" }}>
-      <div style={{ width: 32, height: 32, borderRadius: "50%", flexShrink: 0, background: `${account.color}1a`, border: `2px solid ${account.color}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: account.color }}>
-        {account.initials}
-      </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{account.name}</div>
-        <div style={{ fontSize: 11, color: "var(--text3)" }}>{account.email}</div>
-      </div>
-      <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", padding: "3px 8px", borderRadius: 6, color: account.role === "Admin" ? "var(--accent)" : "var(--success)", background: account.role === "Admin" ? "var(--accent-glow)" : "rgba(34,211,165,.1)" }}>
-        {account.role}
-      </span>
-    </button>
-  );
-}
+// FIX (dead code): DemoCard was used by the demo-accounts section which was
+// removed in a previous commit. The component is no longer referenced anywhere
+// and has been deleted to keep the file clean.
 
 const labelSt = { fontSize: 13, color: "var(--text2)", fontWeight: 500, display: "block", marginBottom: 6 };
 const inputSt = { width: "100%", padding: "12px 14px", fontSize: 14, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", color: "var(--text)", transition: "border-color .15s", outline: "none" };

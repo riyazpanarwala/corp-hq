@@ -1,101 +1,124 @@
 // src/lib/rateLimit.js
 //
-// Simple in-memory rate limiter using a Map.
+// In-memory rate limiter using a Map.
 //
-// How it works:
-//   - Each unique key (e.g. IP address) gets a bucket in the Map.
-//   - Each bucket tracks: how many attempts have been made and when the
-//     window started.
-//   - If the attempt count exceeds MAX_ATTEMPTS within WINDOW_MS, the
-//     request is blocked until the window expires and resets.
+// API:
+//   peek(key)    — check current state WITHOUT incrementing (use at the top of
+//                  a handler to reject already-blocked IPs before doing work)
+//   consume(key) — record one failed attempt and return new state
+//   reset(key)   — clear bucket on successful auth
 //
-// Limitations (acceptable for a single-process Next.js app):
-//   - State lives in process memory — resets on server restart.
-//   - Does not share state across multiple server instances/workers.
-//     For multi-instance deployments, replace the Map with Redis.
-//   - The cleanup interval prevents unbounded memory growth by removing
-//     expired buckets every CLEANUP_INTERVAL_MS.
+// This split ensures only confirmed credential failures count against the
+// limit.  Parsing errors, DB failures, or any other server-side exception
+// never burn an attempt.
 //
-// Configuration
-const WINDOW_MS            = 15 * 60 * 1000; // 15-minute sliding window
-const MAX_ATTEMPTS         = 10;              // max failed attempts per window
-const BLOCK_DURATION_MS    = 30 * 60 * 1000; // 30 min block after limit hit
-const CLEANUP_INTERVAL_MS  = 5  * 60 * 1000; // prune stale entries every 5 min
+// Limitations (single-process):
+//   - State resets on server restart.
+//   - Not shared across multiple Node workers/instances.
+//     Replace the Map with Redis for multi-instance deployments.
 
-// bucket shape: { attempts, windowStart, blockedUntil }
+const WINDOW_MS           = 15 * 60 * 1000; // 15-min sliding window
+const MAX_ATTEMPTS        = 10;              // failed attempts before block
+const BLOCK_DURATION_MS   = 30 * 60 * 1000; // 30-min block after limit hit
+const CLEANUP_INTERVAL_MS =  5 * 60 * 1000; // prune stale buckets every 5 min
+
+// bucket shape: { attempts: number, windowStart: number, blockedUntil: number|null }
 const store = new Map();
 
-// Periodic cleanup — removes entries whose block AND window have both expired
-// so the Map doesn't grow forever on a long-running server.
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function getBucket(key) {
+  return store.get(key) ?? null;
+}
+
+function isBlocked(bucket, now) {
+  return bucket?.blockedUntil != null && now < bucket.blockedUntil;
+}
+
+function retryAfterSeconds(bucket, now) {
+  if (!bucket?.blockedUntil) return 0;
+  return Math.ceil((bucket.blockedUntil - now) / 1000);
+}
+
+// ── Periodic cleanup ──────────────────────────────────────────────────────────
+
 const cleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [key, bucket] of store.entries()) {
     const windowExpired = now - bucket.windowStart > WINDOW_MS;
     const blockExpired  = !bucket.blockedUntil || now > bucket.blockedUntil;
-    if (windowExpired && blockExpired) {
-      store.delete(key);
-    }
+    if (windowExpired && blockExpired) store.delete(key);
   }
 }, CLEANUP_INTERVAL_MS);
 
-// Prevent the interval from keeping the Node process alive during tests
 if (cleanupInterval.unref) cleanupInterval.unref();
 
+// ── Public API ────────────────────────────────────────────────────────────────
+
 /**
- * Check and record an attempt for the given key.
+ * peek(key) — read-only check. Does NOT increment the attempt counter.
+ * Use at the very start of a handler to gate already-blocked clients
+ * before doing any real work (DB queries, bcrypt, etc.).
  *
- * @param {string} key        - Unique identifier, typically the client IP.
- * @param {boolean} success   - Pass true on a successful login to reset the
- *                              bucket (legitimate user shouldn't stay limited
- *                              after a correct password).
- * @returns {{
- *   allowed:     boolean,   // false → caller should return 429
- *   remaining:   number,    // attempts left before block
- *   retryAfter:  number,    // seconds until block lifts (0 if not blocked)
- * }}
+ * @returns {{ allowed: boolean, remaining: number, retryAfter: number }}
  */
-function rateLimit(key, success = false) {
-  const now = Date.now();
+function peek(key) {
+  const now    = Date.now();
+  const bucket = getBucket(key);
 
-  // ── Already blocked? ────────────────────────────────────────
-  const bucket = store.get(key);
-  if (bucket?.blockedUntil && now < bucket.blockedUntil) {
-    const retryAfter = Math.ceil((bucket.blockedUntil - now) / 1000);
-    return { allowed: false, remaining: 0, retryAfter };
+  if (isBlocked(bucket, now)) {
+    return { allowed: false, remaining: 0, retryAfter: retryAfterSeconds(bucket, now) };
   }
 
-  // ── Successful login → clear the bucket and allow ───────────
-  if (success) {
-    store.delete(key);
-    return { allowed: true, remaining: MAX_ATTEMPTS, retryAfter: 0 };
+  const attempts  = bucket && (now - bucket.windowStart <= WINDOW_MS) ? bucket.attempts : 0;
+  const remaining = Math.max(0, MAX_ATTEMPTS - attempts);
+  return { allowed: true, remaining, retryAfter: 0 };
+}
+
+/**
+ * consume(key) — record one failed attempt.
+ * Call ONLY after a confirmed credential failure (wrong password).
+ * Never call on parsing errors, DB failures, or other server exceptions.
+ *
+ * @returns {{ allowed: boolean, remaining: number, retryAfter: number }}
+ */
+function consume(key) {
+  const now    = Date.now();
+  const bucket = getBucket(key);
+
+  // Already blocked — return current state without extending the block
+  if (isBlocked(bucket, now)) {
+    return { allowed: false, remaining: 0, retryAfter: retryAfterSeconds(bucket, now) };
   }
 
-  // ── Window expired or first attempt → start a fresh window ──
+  // Window expired or first attempt → fresh bucket
   if (!bucket || now - bucket.windowStart > WINDOW_MS) {
     store.set(key, { attempts: 1, windowStart: now, blockedUntil: null });
     return { allowed: true, remaining: MAX_ATTEMPTS - 1, retryAfter: 0 };
   }
 
-  // ── Increment attempt counter ────────────────────────────────
+  // Increment within existing window
   bucket.attempts += 1;
 
-  if (bucket.attempts > MAX_ATTEMPTS) {
-    // Threshold crossed — set or extend the block
+  if (bucket.attempts >= MAX_ATTEMPTS) {
     bucket.blockedUntil = now + BLOCK_DURATION_MS;
-    const retryAfter    = Math.ceil(BLOCK_DURATION_MS / 1000);
-    return { allowed: false, remaining: 0, retryAfter };
+    return { allowed: false, remaining: 0, retryAfter: Math.ceil(BLOCK_DURATION_MS / 1000) };
   }
 
-  const remaining = MAX_ATTEMPTS - bucket.attempts;
-  return { allowed: true, remaining, retryAfter: 0 };
+  return { allowed: true, remaining: MAX_ATTEMPTS - bucket.attempts, retryAfter: 0 };
 }
 
 /**
- * Extract the best available client IP from a Next.js Request object.
- * Handles common reverse-proxy headers (Vercel, Nginx, Cloudflare).
- *
- * Falls back to "unknown" if nothing is present — still rate-limited,
- * just under a shared bucket for headerless requests.
+ * reset(key) — clear the bucket after a successful login.
+ * Ensures a legitimate user who had some prior failed attempts isn't blocked.
+ */
+function reset(key) {
+  store.delete(key);
+}
+
+/**
+ * getClientIp(request) — extract the best available client IP.
+ * Handles Vercel, Nginx, and Cloudflare reverse-proxy headers.
  */
 function getClientIp(request) {
   return (
@@ -106,4 +129,4 @@ function getClientIp(request) {
   );
 }
 
-module.exports = { rateLimit, getClientIp, MAX_ATTEMPTS, WINDOW_MS, BLOCK_DURATION_MS };
+module.exports = { peek, consume, reset, getClientIp, MAX_ATTEMPTS, WINDOW_MS, BLOCK_DURATION_MS };

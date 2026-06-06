@@ -18,28 +18,28 @@ export async function GET(request) {
   }
 }
 
-// POST /api/leaves  — apply for leave
+// POST /api/leaves — apply for leave
 //
-// FIX (ApplyLeaveSchema TZ): The "past date" refine in ApplyLeaveSchema now
-// needs a timezone so it can resolve "today" in the employee's local zone rather
-// than UTC.  The client's leave form doesn't send a timezone field, so we inject
-// the user's stored timezone here on the server side before validation.  This
-// means no client changes are required.
+// FIX (timezone bypass): The previous code injected the DB timezone only when
+// the client didn't send one (if (!body.timezone)).  A malicious client could
+// supply their own timezone to shift the "past date" boundary and apply leave
+// for what is actually yesterday in the server's timezone.
+//
+// We now ALWAYS fetch the authenticated user's stored timezone from the DB and
+// overwrite whatever the client sent.  The client-supplied value is discarded
+// entirely.  "UTC" is used only as a last resort if the stored timezone is
+// missing (new user, bad data).
 export async function POST(request) {
   try {
     const user = getCurrentUser(request);
     const body = await request.json();
 
-    // Resolve the employee's timezone for the "past date" validation.
-    // We prefer the timezone the client explicitly sends (future-proofing),
-    // then fall back to the stored user timezone, then UTC.
-    if (!body.timezone) {
-      const stored = await db.user.findUnique({
-        where:  { id: user.id },
-        select: { timezone: true },
-      });
-      body.timezone = stored?.timezone || "UTC";
-    }
+    // Always resolve timezone server-side — never trust client input
+    const stored = await db.user.findUnique({
+      where:  { id: user.id },
+      select: { timezone: true },
+    });
+    body.timezone = stored?.timezone || "UTC";
 
     const parsed = ApplyLeaveSchema.parse(body);
     const leave  = await leaveService.apply(user.id, parsed);

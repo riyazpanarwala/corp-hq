@@ -11,22 +11,14 @@ function zonedDateTimeToUtc(date, time, timeZone) {
   const offsetAt = (utcMs) => {
     const parts = new Intl.DateTimeFormat("en-US", {
       timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
       hour12: false,
     }).formatToParts(new Date(utcMs));
     const values = Object.fromEntries(parts.map(p => [p.type, p.value]));
     const asUtc = Date.UTC(
-      Number(values.year),
-      Number(values.month) - 1,
-      Number(values.day),
-      Number(values.hour),
-      Number(values.minute),
-      Number(values.second),
+      Number(values.year), Number(values.month) - 1, Number(values.day),
+      Number(values.hour), Number(values.minute), Number(values.second),
     );
     return asUtc - utcMs;
   };
@@ -37,10 +29,7 @@ function zonedDateTimeToUtc(date, time, timeZone) {
 
 function dateStringInZone(date, timeZone) {
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
   }).formatToParts(date);
   const values = Object.fromEntries(parts.map(p => [p.type, p.value]));
   return `${values.year}-${values.month}-${values.day}`;
@@ -51,8 +40,7 @@ function workDateFromString(date) {
 }
 
 // FIX (hoursWorked): Prisma returns Decimal objects for Decimal columns.
-// Always use parseFloat() — not Number() or unary + — so that both Decimal
-// objects (which have .toString()) and plain JS numbers round-trip correctly.
+// Always use parseFloat() so both Decimal objects and plain JS numbers work.
 function toFloat(val) {
   if (val == null) return 0;
   return parseFloat(val.toString());
@@ -72,17 +60,15 @@ const attendanceService = {
   computeLate(now, cfg, timeZone = "UTC") {
     const date = dateStringInZone(now, timeZone);
     const thresholdMinutes = cfg.workStartMinute + cfg.lateThresholdMin;
-    const thresholdHour = cfg.workStartHour + Math.floor(thresholdMinutes / 60);
-    const thresholdMinute = thresholdMinutes % 60;
+    const thresholdHour    = cfg.workStartHour + Math.floor(thresholdMinutes / 60);
+    const thresholdMinute  = thresholdMinutes % 60;
     const threshold = zonedDateTimeToUtc(
       date,
       `${String(thresholdHour).padStart(2, "0")}:${String(thresholdMinute).padStart(2, "0")}`,
       timeZone,
     );
     const isLate      = now > threshold;
-    const lateMinutes = isLate
-      ? Math.floor((now.getTime() - threshold.getTime()) / 60_000)
-      : 0;
+    const lateMinutes = isLate ? Math.floor((now.getTime() - threshold.getTime()) / 60_000) : 0;
     return { isLate, lateMinutes };
   },
 
@@ -92,22 +78,15 @@ const attendanceService = {
     const exists = await db.attendance.findUnique({
       where: { userId_date: { userId, date: today } },
     });
-    if (exists)
-      throw new ApiError("Already checked in today", 409, "DUPLICATE_CHECKIN");
+    if (exists) throw new ApiError("Already checked in today", 409, "DUPLICATE_CHECKIN");
 
-    const now                    = new Date();
+    const now                     = new Date();
     const { isLate, lateMinutes } = this.computeLate(now, cfg, timezone);
 
     const record = await db.attendance.create({
       data: {
-        userId,
-        date:       today,
-        checkIn:    now,
-        checkInTz:  timezone,
-        isLate,
-        lateMinutes,
-        status:     "PRESENT",
-        notes,
+        userId, date: today, checkIn: now, checkInTz: timezone,
+        isLate, lateMinutes, status: "PRESENT", notes,
       },
       include: { user: { select: { id: true, name: true, department: true } } },
     });
@@ -134,7 +113,6 @@ const attendanceService = {
     if (record.checkOut) throw new ApiError("Already checked out", 409, "DUPLICATE_CHECKOUT");
 
     const now         = new Date();
-    // FIX (hoursWorked): use toFloat() so Decimal from DB round-trips correctly
     const hoursWorked = (now.getTime() - record.checkIn.getTime()) / 3_600_000;
     const isHalfDay   = hoursWorked < toFloat(cfg.halfDayHours);
 
@@ -151,41 +129,38 @@ const attendanceService = {
     });
 
     emitToAdmins("attendance:checkout", {
-      userId,
-      checkOut:    now,
-      hoursWorked: updated.hoursWorked,
-      isHalfDay,
+      userId, checkOut: now, hoursWorked: updated.hoursWorked, isHalfDay,
     });
 
     return updated;
   },
 
-  // FIX (getTodayRecord TZ): The /api/attendance/today route never passed a
-  // timezone, so this always fell back to the user's *stored* timezone.  If the
-  // employee's stored TZ is stale or they checked in from a different device TZ,
-  // the date lookup used the wrong local date and returned null ("no record").
+  // FIX (getTodayRecord — closed records): The previous version filtered by
+  // `checkOut: null`, so after an employee checked out the query fell back to
+  // the stored user timezone, which could differ from the checkInTz actually
+  // used when the row was written.  This returned null for today's completed
+  // record on the dashboard.
   //
-  // New strategy: look up by the timezone that was recorded at check-in time
-  // (checkInTz on the most-recent open record for this user).  Only fall back to
-  // the stored user TZ if there is no open record yet (i.e. the employee hasn't
-  // checked in today), so we still pick the right "today" date for the WHERE.
+  // New strategy: fetch the most recent attendance record regardless of
+  // checkout state.  If it has a checkInTz, use that to resolve "today" and
+  // look up the row.  Only fall back to the stored user timezone if there is
+  // no recent record at all (brand new employee, no history).
   async getTodayRecord(userId) {
-    // First, look for any open record whose checkInTz gives today's date in that zone
-    const openRecord = await db.attendance.findFirst({
-      where:   { userId, checkOut: null },
+    // Most recent record for this user — open or closed
+    const recent = await db.attendance.findFirst({
+      where:   { userId },
       orderBy: { checkIn: "desc" },
       select:  { checkInTz: true, date: true },
     });
 
-    if (openRecord?.checkInTz) {
-      // Re-derive "today" using the same TZ that was used at check-in
-      const today = this.todayDate(openRecord.checkInTz);
+    if (recent?.checkInTz) {
+      const today = this.todayDate(recent.checkInTz);
       return db.attendance.findUnique({
         where: { userId_date: { userId, date: today } },
       });
     }
 
-    // No open record — fall back to the user's stored timezone to resolve today
+    // No attendance history — fall back to stored user timezone
     const user = await db.user.findUnique({
       where:  { id: userId },
       select: { timezone: true },
@@ -215,35 +190,22 @@ const attendanceService = {
     const hoursWorked = checkOut
       ? Math.round(((checkOut.getTime() - checkIn.getTime()) / 3_600_000) * 100) / 100
       : null;
-    // FIX (hoursWorked): toFloat() guards against Decimal object comparison
     const isHalfDay = hoursWorked != null && hoursWorked < toFloat(cfg.halfDayHours);
 
     return db.attendance.upsert({
-      where: { userId_date: { userId, date: workDate } },
+      where:  { userId_date: { userId, date: workDate } },
       update: {
-        checkIn,
-        checkOut,
-        checkInTz: timezone,
+        checkIn, checkOut, checkInTz: timezone,
         checkOutTz: checkOut ? timezone : null,
-        hoursWorked,
-        isLate,
-        lateMinutes,
-        isHalfDay,
+        hoursWorked, isLate, lateMinutes, isHalfDay,
         autoCheckedOut: false,
         status: isHalfDay ? "HALF_DAY" : "PRESENT",
         notes,
       },
       create: {
-        userId,
-        date: workDate,
-        checkIn,
-        checkOut,
-        checkInTz: timezone,
-        checkOutTz: checkOut ? timezone : null,
-        hoursWorked,
-        isLate,
-        lateMinutes,
-        isHalfDay,
+        userId, date: workDate, checkIn, checkOut,
+        checkInTz: timezone, checkOutTz: checkOut ? timezone : null,
+        hoursWorked, isLate, lateMinutes, isHalfDay,
         status: isHalfDay ? "HALF_DAY" : "PRESENT",
         notes,
       },
@@ -265,13 +227,7 @@ const attendanceService = {
     const [records, total] = await Promise.all([
       db.attendance.findMany({
         where,
-        include: {
-          user: {
-            select: {
-              id: true, name: true, department: true, designation: true,
-            },
-          },
-        },
+        include: { user: { select: { id: true, name: true, department: true, designation: true } } },
         orderBy: [{ date: "desc" }, { checkIn: "desc" }],
         skip:    (page - 1) * limit,
         take:    limit,
@@ -285,46 +241,32 @@ const attendanceService = {
     };
   },
 
-  // FIX (autoCheckoutOverdue TZ): The original code called todayDate() with no
-  // timezone, which always resolved to UTC midnight.  The `date` column stores
-  // the employee's *local* date (derived from checkInTz at check-in time), so
-  // using a UTC-based window excluded employees in UTC+ timezones (their records
-  // had a later date) and double-included employees in UTC- zones.
-  //
-  // New approach:
-  //   1. Fetch all open records that checked in more than autoCheckoutHours ago
-  //      (no date filter at all — the cutoff on checkIn is sufficient).
-  //   2. For each record, re-derive "today" in the employee's actual check-in
-  //      timezone (checkInTz) and confirm the record belongs to today before
-  //      auto-checking it out.  This prevents accidentally closing a record from
-  //      a previous day if a server restart delayed the cron.
+  // FIX (autoCheckoutOverdue — status inconsistency): The previous code
+  // hardcoded `status: "PRESENT"` in the update even when `isHalfDay` was
+  // true, leaving the DB in an inconsistent state where isHalfDay=true but
+  // status="PRESENT".  The status now derives from the computed isHalfDay,
+  // matching the same logic used in checkOut() and recordManual().
   async autoCheckoutOverdue() {
     const cfg    = await this.getConfig();
     const now    = new Date();
-    // Any record checked in more than autoCheckoutHours ago and still open
     const cutoff = new Date(now.getTime() - cfg.autoCheckoutHours * 3_600_000);
 
     const overdue = await db.attendance.findMany({
-      where: {
-        checkOut: null,
-        checkIn:  { lte: cutoff },
-      },
+      where: { checkOut: null, checkIn: { lte: cutoff } },
     });
 
     let count = 0;
     for (const rec of overdue) {
-      // Resolve "today" in the timezone that was used at check-in
       const tz      = rec.checkInTz || "UTC";
       const today   = this.todayDate(tz);
       const recDate = rec.date instanceof Date ? rec.date : new Date(rec.date);
 
-      // Only auto-checkout records whose date column equals today in their TZ.
-      // Records from a previous date (e.g. server was down overnight) are left
-      // alone — an admin should review them manually.
+      // Only auto-checkout records whose stored date equals today in their TZ
       if (recDate.getTime() !== today.getTime()) continue;
 
       const checkOut    = new Date(rec.checkIn.getTime() + cfg.autoCheckoutHours * 3_600_000);
       const hoursWorked = cfg.autoCheckoutHours;
+      const isHalfDay   = toFloat(hoursWorked) < toFloat(cfg.halfDayHours);
 
       await db.attendance
         .update({
@@ -334,14 +276,12 @@ const attendanceService = {
             checkOutTz:    tz,
             hoursWorked,
             autoCheckedOut: true,
-            // FIX (hoursWorked): toFloat() so Decimal cfg value compares correctly
-            isHalfDay:     toFloat(hoursWorked) < toFloat(cfg.halfDayHours),
-            status:        "PRESENT",
+            isHalfDay,
+            // FIX: derive status from isHalfDay instead of hardcoding "PRESENT"
+            status:        isHalfDay ? "HALF_DAY" : "PRESENT",
           },
         })
-        .catch((e) =>
-          console.error(`[autoCheckout] Failed to update record ${rec.id}:`, e.message),
-        );
+        .catch(e => console.error(`[autoCheckout] Failed to update record ${rec.id}:`, e.message));
       count++;
     }
     return count;
@@ -363,16 +303,13 @@ const attendanceService = {
       byUser[r.userId].present++;
       if (r.isLate)    byUser[r.userId].late++;
       if (r.isHalfDay) byUser[r.userId].halfDay++;
-      // FIX (hoursWorked): toFloat() handles Prisma Decimal objects
       byUser[r.userId].totalHours += toFloat(r.hoursWorked);
     }
 
-    return Object.values(byUser).map((e) => ({
+    return Object.values(byUser).map(e => ({
       ...e,
       totalHours: Math.round(e.totalHours * 10) / 10,
-      avgHours:   e.present
-        ? Math.round((e.totalHours / e.present) * 10) / 10
-        : 0,
+      avgHours:   e.present ? Math.round((e.totalHours / e.present) * 10) / 10 : 0,
     }));
   },
 };

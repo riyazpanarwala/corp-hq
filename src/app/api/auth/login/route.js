@@ -2,38 +2,36 @@
 import { db } from "@/lib/db";
 import { signAccessToken, signRefreshToken, refreshTokenExpiry, handleApiError } from "@/lib/auth";
 import { LoginSchema } from "@/lib/validations";
-import { rateLimit, getClientIp } from "@/lib/rateLimit";
+import { peek, consume, reset, getClientIp, MAX_ATTEMPTS } from "@/lib/rateLimit";
 import bcrypt      from "bcryptjs";
 import { cookies } from "next/headers";
 
 const DUMMY_HASH = "$2b$12$invalidsaltXXXXXXXXXXXXXXinvalidhashXXXXXXXXXXXXXXX";
 
 export async function POST(request) {
-  // ── Rate limit check ────────────────────────────────────────────────────────
-  // Key on IP so each client has its own attempt bucket.
-  // We check BEFORE parsing the body — no point doing any work if blocked.
   const ip  = getClientIp(request);
   const key = `login:${ip}`;
 
-  // Initial check (success=false, we haven't verified credentials yet)
-  const limitCheck = rateLimit(key);
-  if (!limitCheck.allowed) {
+  // ── 1. Peek — reject already-blocked IPs before doing ANY work ────────────
+  // peek() is read-only: it never increments the attempt counter.
+  // This means a DB outage or JSON parse error below will NOT burn an attempt.
+  const gate = peek(key);
+  if (!gate.allowed) {
     return Response.json(
       {
-        error: `Too many failed login attempts. Please try again in ${Math.ceil(limitCheck.retryAfter / 60)} minute(s).`,
-        retryAfter: limitCheck.retryAfter,
+        error:      `Too many failed login attempts. Please try again in ${Math.ceil(gate.retryAfter / 60)} minute(s).`,
+        retryAfter: gate.retryAfter,
       },
       {
         status: 429,
         headers: {
-          "Retry-After":       String(limitCheck.retryAfter),
-          "X-RateLimit-Limit": String(10),
+          "Retry-After":           String(gate.retryAfter),
+          "X-RateLimit-Limit":     String(MAX_ATTEMPTS),
           "X-RateLimit-Remaining": "0",
         },
       },
     );
   }
-  // ────────────────────────────────────────────────────────────────────────────
 
   try {
     const body = await request.json();
@@ -41,32 +39,44 @@ export async function POST(request) {
 
     const user = await db.user.findUnique({
       where:  { email: email.toLowerCase().trim(), isActive: true },
-      select: { id: true, email: true, name: true, role: true, department: true, designation: true, timezone: true, avatarUrl: true, passwordHash: true },
+      select: {
+        id: true, email: true, name: true, role: true,
+        department: true, designation: true, timezone: true,
+        avatarUrl: true, passwordHash: true,
+      },
     });
 
     const passwordMatch = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
 
     if (!user || !passwordMatch) {
-      // Failed attempt — rateLimit already incremented above on the initial
-      // check (attempts: 1). For clarity we don't double-count; the initial
-      // call above already recorded this attempt in the bucket.
+      // ── 2. consume() — only called on a confirmed wrong-password failure ──
+      // Server errors (parse, DB) above would have thrown and been caught
+      // below, so this line is only reached on genuine bad credentials.
+      const result = consume(key);
       return Response.json(
         {
-          error: "Invalid email or password",
-          // Inform the client how many attempts remain so the UI can warn them
-          attemptsRemaining: limitCheck.remaining,
+          error:             "Invalid email or password",
+          attemptsRemaining: result.remaining,
+          // Surface a block warning when they're about to hit the limit
+          ...(result.remaining <= 3 && result.remaining > 0 && {
+            warning: `${result.remaining} attempt${result.remaining !== 1 ? "s" : ""} remaining before your IP is temporarily blocked.`,
+          }),
+          ...(!result.allowed && {
+            warning: `Too many failed attempts. Your IP is now blocked for ${Math.ceil(result.retryAfter / 60)} minute(s).`,
+          }),
         },
         {
           status: 401,
           headers: {
-            "X-RateLimit-Remaining": String(limitCheck.remaining),
+            "X-RateLimit-Limit":     String(MAX_ATTEMPTS),
+            "X-RateLimit-Remaining": String(result.remaining),
           },
         },
       );
     }
 
-    // ── Successful login → reset the rate-limit bucket for this IP ────────────
-    rateLimit(key, true /* success */);
+    // ── 3. reset() — clear the bucket on successful login ─────────────────
+    reset(key);
 
     const { passwordHash, ...safeUser } = user;
 
@@ -97,6 +107,7 @@ export async function POST(request) {
 
     return Response.json({ accessToken, user: safeUser });
   } catch (err) {
+    // Parsing / validation / server errors — do NOT consume a rate-limit attempt
     if (err?.errors) return Response.json({ error: err.errors[0].message }, { status: 422 });
     return handleApiError(err);
   }
