@@ -2,7 +2,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { useAuthContext } from "@/components/providers/AuthProvider";
-import { Card, Table, Badge, Btn, Modal, Tabs, SectionHeader, Avatar, Field, Skeleton } from "@/components/ui";
+import { Card, Table, Badge, Btn, Modal, Tabs, SectionHeader, Avatar, Field, Skeleton, ToastStack, useToast } from "@/components/ui";
 import { formatDate, empColor, empInitials } from "@/lib/utils";
 
 const LEAVE_LABELS = { CL: "Casual Leave", SL: "Sick Leave", PL: "Paid Leave" };
@@ -16,6 +16,8 @@ export default function AdminLeavesPage() {
   const [review,  setReview]  = useState(null);
   const [note,    setNote]    = useState("");
   const [loading, setLoading] = useState(true);
+  const [reviewingAction, setReviewingAction] = useState(null);
+  const { toasts, toast, remove } = useToast();
 
   const fetchLeaves = useCallback(async () => {
     setLoading(true);
@@ -38,15 +40,42 @@ export default function AdminLeavesPage() {
     return off;
   }, [socketOn, fetchLeaves]);
 
+  // FIX (silent failure): Previously the catch block was missing — any network
+  // error, server error, or "already reviewed" 409 was silently swallowed.
+  // The admin had no idea the action failed; the modal closed and nothing updated.
+  // Now errors are caught, displayed as a toast, and the modal stays open.
   const handleReview = async (action) => {
-    if (!review) return;
-    await authFetch(`/api/leaves/${review.id}`, {
-      method: "PATCH",
-      body:   JSON.stringify({ action, reviewNote: note }),
-    });
+    if (!review || reviewingAction) return;
+    setReviewingAction(action);
+    try {
+      const res  = await authFetch(`/api/leaves/${review.id}`, {
+        method: "PATCH",
+        body:   JSON.stringify({ action, reviewNote: note }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        // Surface the server error (e.g. "Leave has already been reviewed")
+        toast(data?.error || "Failed to process review. Please try again.", "error");
+        return;
+      }
+
+      // Success — close modal and refresh
+      setReview(null);
+      setNote("");
+      fetchLeaves();
+      toast(action === "APPROVED" ? "Leave approved." : "Leave rejected.", "success");
+    } catch (err) {
+      toast(err.message || "Network error. Please try again.", "error");
+    } finally {
+      setReviewingAction(null);
+    }
+  };
+
+  const closeReview = () => {
+    if (reviewingAction) return;
     setReview(null);
     setNote("");
-    fetchLeaves();
   };
 
   const TABS = [
@@ -75,7 +104,7 @@ export default function AdminLeavesPage() {
     { key: "reason", label: "Reason", render: r => <span className="truncate" style={{ color: "var(--text2)", maxWidth: 160, display: "block" }}>{r.reason}</span> },
     { key: "status", label: "Status", render: r => <Badge status={r.status?.toLowerCase()} /> },
     { key: "action", label: "Action", render: r => r.status === "PENDING"
-      ? <Btn size="xs" variant="secondary" onClick={() => { setReview(r); setNote(""); }}>Review</Btn>
+      ? <Btn size="xs" variant="secondary" onClick={() => { setReview(r); setNote(""); setReviewingAction(null); }}>Review</Btn>
       : (r.reviewNote ? <span style={{ fontSize: 12, color: "var(--text3)", maxWidth: 140, display: "block" }} className="truncate">{r.reviewNote}</span> : "—")
     },
   ];
@@ -89,7 +118,7 @@ export default function AdminLeavesPage() {
       </Card>
 
       {review && (
-        <Modal title="Review Leave Request" onClose={() => { setReview(null); setNote(""); }}>
+        <Modal title="Review Leave Request" onClose={closeReview}>
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
             <div style={{ padding: 16, background: "var(--surface2)", borderRadius: "var(--radius-md)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
@@ -112,15 +141,40 @@ export default function AdminLeavesPage() {
               <div style={{ marginTop: 10, fontSize: 13 }}><span style={{ color: "var(--text2)" }}>Reason: </span>{review.reason}</div>
             </div>
             <Field label="Review Note (optional)">
-              <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder="Add a note for the employee…" style={{ resize: "none" }} />
+              <textarea
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                rows={2}
+                placeholder="Add a note for the employee…"
+                style={{ resize: "none" }}
+                disabled={!!reviewingAction}
+              />
             </Field>
             <div style={{ display: "flex", gap: 10 }}>
-              <Btn variant="danger"  onClick={() => handleReview("REJECTED")} style={{ flex: 1, justifyContent: "center" }}>❌ Reject</Btn>
-              <Btn variant="success" onClick={() => handleReview("APPROVED")} style={{ flex: 1, justifyContent: "center" }}>✅ Approve</Btn>
+              <Btn
+                variant="danger"
+                loading={reviewingAction === "REJECTED"}
+                disabled={!!reviewingAction}
+                onClick={() => handleReview("REJECTED")}
+                style={{ flex: 1, justifyContent: "center" }}
+              >
+                ❌ Reject
+              </Btn>
+              <Btn
+                variant="success"
+                loading={reviewingAction === "APPROVED"}
+                disabled={!!reviewingAction}
+                onClick={() => handleReview("APPROVED")}
+                style={{ flex: 1, justifyContent: "center" }}
+              >
+                ✅ Approve
+              </Btn>
             </div>
           </div>
         </Modal>
       )}
+
+      <ToastStack toasts={toasts} remove={remove} />
     </div>
   );
 }

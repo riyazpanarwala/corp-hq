@@ -54,7 +54,36 @@ const AttendanceFilterSchema = z.object({
   limit:  z.coerce.number().int().min(1).max(200).default(50),
 });
 
-const todayISO = () => new Date().toISOString().split("T")[0];
+// FIX (ApplyLeaveSchema TZ): The original todayISO() used new Date().toISOString()
+// which is always UTC.  The startDate the client sends is a *local* date string
+// (YYYY-MM-DD in the user's timezone).  When an employee applies at e.g. 00:30 local
+// time (UTC-0:30), todayISO() still returns yesterday's UTC date, so the refine
+// rejects their request as "past date" even though it's today locally.
+//
+// The ApplyLeaveSchema now accepts an optional `timezone` field (the client
+// already sends one on every leave apply request via the body, but the schema
+// previously discarded it).  We resolve "today" in that timezone so the
+// comparison is always apples-to-apples.  If no timezone is provided we fall
+// back to UTC, which preserves the old behaviour for callers that don't send one.
+//
+// todayInZone(tz) re-implements the same Intl-based date-string logic used in
+// attendanceService so there is a single canonical way to resolve "today" from
+// a timezone string throughout the codebase.
+function todayInZone(timeZone) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year:  "numeric",
+      month: "2-digit",
+      day:   "2-digit",
+    }).formatToParts(new Date());
+    const v = Object.fromEntries(parts.map(p => [p.type, p.value]));
+    return `${v.year}-${v.month}-${v.day}`;
+  } catch {
+    // Fallback: invalid timezone → use UTC
+    return new Date().toISOString().split("T")[0];
+  }
+}
 
 const ApplyLeaveSchema = z
   .object({
@@ -62,13 +91,16 @@ const ApplyLeaveSchema = z
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     endDate:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     reason:    z.string().min(5, "Reason min 5 chars").max(500),
+    // timezone is used only for the "past date" validation; it is not stored.
+    timezone:  z.string().optional(),
   })
   .refine(d => d.endDate >= d.startDate, {
     message: "End date must be >= start date", path: ["endDate"],
   })
-  .refine(d => d.startDate >= todayISO(), {
-    message: "Cannot apply leave for past dates", path: ["startDate"],
-  });
+  .refine(
+    d => d.startDate >= todayInZone(d.timezone || "UTC"),
+    { message: "Cannot apply leave for past dates", path: ["startDate"] },
+  );
 
 const ReviewLeaveSchema = z.object({
   action:     z.enum(["APPROVED", "REJECTED"]),

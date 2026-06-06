@@ -7,11 +7,14 @@ import { formatDate, countWorkingDays, availableDays, LEAVE_CONFIG } from "@/lib
 
 export default function EmployeeLeavesPage() {
   const { authFetch, socketOn } = useAuthContext();
-  const [leaves,  setLeaves]  = useState([]);
-  const [balance, setBalance] = useState(null);
-  const [modal,   setModal]   = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [toast,   setToast]   = useState(null);
+  const [leaves,      setLeaves]      = useState([]);
+  const [balance,     setBalance]     = useState(null);
+  const [modal,       setModal]       = useState(false);
+  const [loading,     setLoading]     = useState(true);
+  const [toast,       setToast]       = useState(null);
+  // FIX: track which leave id is currently being cancelled so the exact row
+  // button shows a spinner and every cancel button is disabled until done.
+  const [cancellingId, setCancellingId] = useState(null);
 
   const showToast = (msg, type = "info") => {
     setToast({ msg, type });
@@ -49,11 +52,21 @@ export default function EmployeeLeavesPage() {
     return { success: false, error: json.error || "Failed to apply" };
   };
 
+  // FIX: set cancellingId so the row button shows a spinner; clear it after
+  // the request completes regardless of success/failure.
   const handleCancel = async (id) => {
-    const res = await authFetch(`/api/leaves/${id}`, { method: "DELETE" });
-    if (res.ok) {
-      fetchAll();
-      showToast("Leave request cancelled.", "info");
+    setCancellingId(id);
+    try {
+      const res = await authFetch(`/api/leaves/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        fetchAll();
+        showToast("Leave request cancelled.", "info");
+      } else {
+        const json = await res.json();
+        showToast(json.error || "Failed to cancel leave.", "error");
+      }
+    } finally {
+      setCancellingId(null);
     }
   };
 
@@ -67,9 +80,23 @@ export default function EmployeeLeavesPage() {
     { key: "reason", label: "Reason",  render: r => <span className="truncate" style={{color:"var(--text2)",maxWidth:160,display:"block"}}>{r.reason}</span> },
     { key: "status", label: "Status",  render: r => <Badge status={r.status?.toLowerCase()} /> },
     { key: "note",   label: "HR Note", render: r => r.reviewNote ? <span style={{fontSize:12,color:"var(--text3)"}}>{r.reviewNote}</span> : "—" },
-    { key: "action", label: "",        render: r => r.status === "PENDING"
-      ? <Btn size="xs" variant="ghost" onClick={() => handleCancel(r.id)}>Cancel</Btn>
-      : null
+    {
+      key: "action", label: "",
+      render: r => r.status === "PENDING"
+        ? (
+          // FIX: loading prop shows spinner on the exact row being cancelled;
+          // disabled prop prevents clicking any other cancel while one is in-flight.
+          <Btn
+            size="xs"
+            variant="ghost"
+            loading={cancellingId === r.id}
+            disabled={cancellingId !== null}
+            onClick={() => handleCancel(r.id)}
+          >
+            Cancel
+          </Btn>
+        )
+        : null,
     },
   ];
 
@@ -78,8 +105,8 @@ export default function EmployeeLeavesPage() {
       {toast && (
         <div style={{
           position: "fixed", bottom: 24, right: 24, zIndex: 9999,
-          background: toast.type === "success" ? "rgba(34,211,165,.15)" : "var(--surface2)",
-          border: `1px solid ${toast.type === "success" ? "var(--success)" : "var(--border2)"}`,
+          background: toast.type === "success" ? "rgba(34,211,165,.15)" : toast.type === "error" ? "rgba(240,68,68,.15)" : "var(--surface2)",
+          border: `1px solid ${toast.type === "success" ? "var(--success)" : toast.type === "error" ? "var(--danger)" : "var(--border2)"}`,
           borderRadius: "var(--radius-md)", padding: "12px 18px",
           color: "var(--text)", fontSize: 14, fontWeight: 500, minWidth: 260,
         }} className="fade-up">{toast.msg}</div>
@@ -210,7 +237,8 @@ function ApplyLeaveModal({ balance, onClose, onSubmit }) {
         )}
 
         <div style={{ display: "flex", gap: 10 }}>
-          <Btn variant="ghost" onClick={onClose} style={{ flex: 1, justifyContent: "center" }}>Cancel</Btn>
+          {/* FIX: disable Cancel while submit is in-flight so user can't close mid-request */}
+          <Btn variant="ghost" onClick={onClose} disabled={loading} style={{ flex: 1, justifyContent: "center" }}>Cancel</Btn>
           <Btn onClick={handleSubmit} loading={loading} style={{ flex: 1, justifyContent: "center" }}>Submit Request</Btn>
         </div>
       </div>
