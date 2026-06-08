@@ -66,6 +66,10 @@ export function useAuth() {
     router.push("/login");
   }, [router]);
 
+  // FIX: doRefresh now always calls setUser() with the stored user so that
+  // isLoggedIn becomes true after a successful background token refresh.
+  // Previously it only called setAccessToken(), leaving user as null and
+  // causing the layout guards to render a blank screen.
   const doRefresh = useCallback(async () => {
     try {
       const res = await fetch("/api/auth/refresh", {
@@ -78,6 +82,8 @@ export function useAuth() {
       const { user: storedUser } = getStored();
       if (storedUser) saveSession(newAccess, storedUser);
       setAccessToken(newAccess);
+      // FIX: always sync user state so isLoggedIn reflects reality
+      if (storedUser) setUser(storedUser);
       scheduleRefresh(newAccess);
       return newAccess;
     } catch {
@@ -94,16 +100,18 @@ export function useAuth() {
     if (access && storedUser) {
       const expiry = tokenExpiry(access);
       if (expiry && expiry > Date.now()) {
+        // Token still valid — hydrate immediately
         setUser(storedUser);
         setAccessToken(access);
         scheduleRefresh(access);
         setIsHydrated(true);
       } else {
-        doRefresh().then((newToken) => {
-          if (newToken) {
-            const { user: u } = getStored();
-            setUser(u);
-          }
+        // Token expired — refresh before declaring hydrated.
+        // FIX: doRefresh() now sets user state internally, so we no longer
+        // need to call setUser() here. We only need to mark hydration done
+        // regardless of whether the refresh succeeded or failed (on failure,
+        // doLogout redirects to /login, so the blank-screen guard never fires).
+        doRefresh().finally(() => {
           setIsHydrated(true);
         });
       }
