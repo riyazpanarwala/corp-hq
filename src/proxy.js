@@ -11,6 +11,9 @@ const PUBLIC_PATHS = ["/api/auth/login", "/api/auth/refresh", "/login"];
 const ADMIN_PATHS  = ["/api/users", "/api/reports", "/admin"];
 const API_RE       = /^\/api\//;
 
+// Paths where appending ?from=... is not useful (root redirect, index pages)
+const SKIP_FROM_PATHS = new Set(["/"]);
+
 export async function proxy(request) {
   const { pathname } = request.nextUrl;
 
@@ -27,7 +30,11 @@ export async function proxy(request) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
     const url = new URL("/login", request.url);
-    url.searchParams.set("from", pathname);
+    // Don't append ?from= for trivial paths like "/" — it clutters the URL
+    // with no benefit since the login page always redirects to the dashboard.
+    if (!SKIP_FROM_PATHS.has(pathname)) {
+      url.searchParams.set("from", pathname);
+    }
     return NextResponse.redirect(url);
   }
 
@@ -58,7 +65,9 @@ export async function proxy(request) {
       return NextResponse.json({ error: "Token expired or invalid" }, { status: 401 });
     }
     const url = new URL("/login", request.url);
-    url.searchParams.set("expired", "true");
+    if (!SKIP_FROM_PATHS.has(pathname)) {
+      url.searchParams.set("expired", "true");
+    }
     return NextResponse.redirect(url);
   }
 }

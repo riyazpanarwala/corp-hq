@@ -36,6 +36,24 @@ function tokenExpiry(token) {
   }
 }
 
+// FIX (Issue 1): Derive user fields from the JWT payload rather than reading
+// stale localStorage after a refresh.  The access token is server-signed and
+// always contains the canonical role/name/email, so it is the authoritative
+// source.  localStorage may hold values from a previous login session.
+function userFromToken(token) {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return {
+      id:    Number(payload.sub),
+      email: payload.email,
+      name:  payload.name,
+      role:  payload.role,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function useAuth() {
   const router   = useRouter();
   const timerRef = useRef(null);
@@ -45,8 +63,16 @@ export function useAuth() {
   const [isLoading,   setIsLoading]   = useState(false);
   const [isHydrated,  setIsHydrated]  = useState(false);
 
-  const doRefreshRef = useRef(null);
-  const doLogoutRef  = useRef(null);
+  const doRefreshRef      = useRef(null);
+  const doLogoutRef       = useRef(null);
+  // FIX (Issue 2): Single in-flight refresh promise shared across all callers.
+  // doRefresh() is reachable from hydration, the scheduled timer, and authFetch
+  // concurrently.  /api/auth/refresh rotates the cookie on every call, so two
+  // overlapping requests race: the first succeeds, the second sends the now-stale
+  // cookie, gets a 401, and triggers doLogout — logging the user out of a valid
+  // session.  Coalescing ensures only one network round-trip is in flight at any
+  // time; every subsequent caller awaits the same promise and gets the same token.
+  const refreshPromiseRef = useRef(null);
 
   const scheduleRefresh = useCallback((token) => {
     const expiry = tokenExpiry(token);
@@ -61,29 +87,49 @@ export function useAuth() {
     fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
     clearSession();
     if (timerRef.current) clearTimeout(timerRef.current);
+    refreshPromiseRef.current = null;
     setUser(null);
     setAccessToken(null);
     router.push("/login");
   }, [router]);
 
   const doRefresh = useCallback(async () => {
-    try {
-      const res = await fetch("/api/auth/refresh", {
-        method:      "POST",
-        credentials: "same-origin",
-        headers:     { "Content-Type": "application/json" },
-      });
-      if (!res.ok) throw new Error("Refresh failed");
-      const { accessToken: newAccess } = await res.json();
-      const { user: storedUser } = getStored();
-      if (storedUser) saveSession(newAccess, storedUser);
-      setAccessToken(newAccess);
-      scheduleRefresh(newAccess);
-      return newAccess;
-    } catch {
-      doLogoutRef.current?.();
-      return null;
-    }
+    // FIX (Issue 2): If a refresh is already in flight, return the same promise
+    // so concurrent callers don't each fire a separate request with potentially
+    // stale/rotated cookies.
+    if (refreshPromiseRef.current) return refreshPromiseRef.current;
+
+    const promise = (async () => {
+      try {
+        const res = await fetch("/api/auth/refresh", {
+          method:      "POST",
+          credentials: "same-origin",
+          headers:     { "Content-Type": "application/json" },
+        });
+        if (!res.ok) throw new Error("Refresh failed");
+        const { accessToken: newAccess } = await res.json();
+
+        // FIX (Issue 1): Derive user from the fresh token payload, not from
+        // whatever role/name/email happens to be cached in localStorage.
+        const freshUser = userFromToken(newAccess);
+        if (freshUser) {
+          saveSession(newAccess, freshUser);
+          setUser(freshUser);
+        }
+        setAccessToken(newAccess);
+        scheduleRefresh(newAccess);
+        return newAccess;
+      } catch {
+        doLogoutRef.current?.();
+        return null;
+      } finally {
+        // Clear the shared promise so the next refresh cycle can run
+        refreshPromiseRef.current = null;
+      }
+    })();
+
+    refreshPromiseRef.current = promise;
+    return promise;
   }, [scheduleRefresh]);
 
   useEffect(() => { doRefreshRef.current = doRefresh; }, [doRefresh]);
@@ -94,16 +140,18 @@ export function useAuth() {
     if (access && storedUser) {
       const expiry = tokenExpiry(access);
       if (expiry && expiry > Date.now()) {
-        setUser(storedUser);
+        // Token still valid — hydrate immediately.
+        // Prefer deriving from token payload to catch stale localStorage fields,
+        // but fall back to storedUser if the payload parse fails for any reason.
+        const freshUser = userFromToken(access) ?? storedUser;
+        setUser(freshUser);
         setAccessToken(access);
         scheduleRefresh(access);
         setIsHydrated(true);
       } else {
-        doRefresh().then((newToken) => {
-          if (newToken) {
-            const { user: u } = getStored();
-            setUser(u);
-          }
+        // Token expired — refresh before declaring hydrated.
+        // doRefresh sets both user and accessToken internally.
+        doRefresh().finally(() => {
           setIsHydrated(true);
         });
       }
@@ -125,6 +173,9 @@ export function useAuth() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Login failed");
 
+      // On login the server returns the full user object (including department,
+      // designation etc.) which the token payload doesn't carry — so we keep
+      // using data.user here and persist it for the initial hydration path.
       saveSession(data.accessToken, data.user);
       setUser(data.user);
       setAccessToken(data.accessToken);
