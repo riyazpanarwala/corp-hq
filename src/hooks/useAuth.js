@@ -36,10 +36,8 @@ function tokenExpiry(token) {
   }
 }
 
-// FIX (Issue 1): Derive user fields from the JWT payload rather than reading
-// stale localStorage after a refresh.  The access token is server-signed and
-// always contains the canonical role/name/email, so it is the authoritative
-// source.  localStorage may hold values from a previous login session.
+// Derive canonical user fields from the server-signed JWT payload.
+// Falls back to null if the token is malformed.
 function userFromToken(token) {
   try {
     const payload = JSON.parse(atob(token.split(".")[1]));
@@ -54,6 +52,21 @@ function userFromToken(token) {
   }
 }
 
+// Perform the refresh network call with no React state dependencies.
+// Returns the new access token string, or null on failure.
+// This is a plain async function (not a hook) so it can be called safely
+// from the hydration useEffect before any refs are populated.
+async function fetchNewToken() {
+  const res = await fetch("/api/auth/refresh", {
+    method:      "POST",
+    credentials: "same-origin",
+    headers:     { "Content-Type": "application/json" },
+  });
+  if (!res.ok) throw new Error("Refresh failed");
+  const { accessToken } = await res.json();
+  return accessToken;
+}
+
 export function useAuth() {
   const router   = useRouter();
   const timerRef = useRef(null);
@@ -65,13 +78,9 @@ export function useAuth() {
 
   const doRefreshRef      = useRef(null);
   const doLogoutRef       = useRef(null);
-  // FIX (Issue 2): Single in-flight refresh promise shared across all callers.
-  // doRefresh() is reachable from hydration, the scheduled timer, and authFetch
-  // concurrently.  /api/auth/refresh rotates the cookie on every call, so two
-  // overlapping requests race: the first succeeds, the second sends the now-stale
-  // cookie, gets a 401, and triggers doLogout — logging the user out of a valid
-  // session.  Coalescing ensures only one network round-trip is in flight at any
-  // time; every subsequent caller awaits the same promise and gets the same token.
+  // Coalesce concurrent refresh calls: /api/auth/refresh rotates the cookie,
+  // so two overlapping calls race — the second sends the stale cookie, fails,
+  // and triggers logout. One shared in-flight promise prevents this.
   const refreshPromiseRef = useRef(null);
 
   const scheduleRefresh = useCallback((token) => {
@@ -94,27 +103,20 @@ export function useAuth() {
   }, [router]);
 
   const doRefresh = useCallback(async () => {
-    // FIX (Issue 2): If a refresh is already in flight, return the same promise
-    // so concurrent callers don't each fire a separate request with potentially
-    // stale/rotated cookies.
     if (refreshPromiseRef.current) return refreshPromiseRef.current;
 
     const promise = (async () => {
       try {
-        const res = await fetch("/api/auth/refresh", {
-          method:      "POST",
-          credentials: "same-origin",
-          headers:     { "Content-Type": "application/json" },
-        });
-        if (!res.ok) throw new Error("Refresh failed");
-        const { accessToken: newAccess } = await res.json();
-
-        // FIX (Issue 1): Derive user from the fresh token payload, not from
-        // whatever role/name/email happens to be cached in localStorage.
+        const newAccess = await fetchNewToken();
+        // Derive user from the fresh server-signed token — never from stale localStorage
         const freshUser = userFromToken(newAccess);
         if (freshUser) {
-          saveSession(newAccess, freshUser);
-          setUser(freshUser);
+          // Merge with stored user to preserve richer fields (department,
+          // designation etc.) that the token payload doesn't carry
+          const { user: storedUser } = getStored();
+          const mergedUser = storedUser ? { ...storedUser, ...freshUser } : freshUser;
+          saveSession(newAccess, mergedUser);
+          setUser(mergedUser);
         }
         setAccessToken(newAccess);
         scheduleRefresh(newAccess);
@@ -123,7 +125,6 @@ export function useAuth() {
         doLogoutRef.current?.();
         return null;
       } finally {
-        // Clear the shared promise so the next refresh cycle can run
         refreshPromiseRef.current = null;
       }
     })();
@@ -132,33 +133,69 @@ export function useAuth() {
     return promise;
   }, [scheduleRefresh]);
 
-  useEffect(() => { doRefreshRef.current = doRefresh; }, [doRefresh]);
-  useEffect(() => { doLogoutRef.current  = doLogout;  }, [doLogout]);
+  // Populate refs synchronously before any async work can reference them
+  doRefreshRef.current = doRefresh;
+  doLogoutRef.current  = doLogout;
 
+  // ── Hydration ─────────────────────────────────────────────────────────────
+  // FIX: Previously doRefresh was called directly from this effect, but
+  // doLogoutRef was populated in a separate useEffect that hadn't run yet at
+  // this point, so a refresh failure silently left user=null and isHydrated=true
+  // → blank screen.  Now refs are assigned inline above (before the effect runs)
+  // so they're always populated when the async path executes.
   useEffect(() => {
-    const { access, user: storedUser } = getStored();
-    if (access && storedUser) {
+    let cancelled = false;
+
+    const hydrate = async () => {
+      const { access, user: storedUser } = getStored();
+
+      if (!access || !storedUser) {
+        setIsHydrated(true);
+        return;
+      }
+
       const expiry = tokenExpiry(access);
       if (expiry && expiry > Date.now()) {
-        // Token still valid — hydrate immediately.
-        // Prefer deriving from token payload to catch stale localStorage fields,
-        // but fall back to storedUser if the payload parse fails for any reason.
+        // Token still valid — derive user from payload, fall back to stored
         const freshUser = userFromToken(access) ?? storedUser;
-        setUser(freshUser);
-        setAccessToken(access);
-        scheduleRefresh(access);
-        setIsHydrated(true);
-      } else {
-        // Token expired — refresh before declaring hydrated.
-        // doRefresh sets both user and accessToken internally.
-        doRefresh().finally(() => {
+        const mergedUser = { ...storedUser, ...freshUser };
+        if (!cancelled) {
+          setUser(mergedUser);
+          setAccessToken(access);
+          scheduleRefresh(access);
           setIsHydrated(true);
-        });
+        }
+        return;
       }
-    } else {
-      setIsHydrated(true);
-    }
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+
+      // Token expired — attempt refresh.
+      // doLogoutRef.current is guaranteed set (inline assignment above).
+      try {
+        const newAccess = await fetchNewToken();
+        if (cancelled) return;
+        const freshUser  = userFromToken(newAccess);
+        const mergedUser = freshUser ? { ...storedUser, ...freshUser } : storedUser;
+        saveSession(newAccess, mergedUser);
+        setUser(mergedUser);
+        setAccessToken(newAccess);
+        scheduleRefresh(newAccess);
+      } catch {
+        // Refresh failed — clear session and redirect to login
+        if (!cancelled) {
+          clearSession();
+          router.replace("/login");
+        }
+      } finally {
+        if (!cancelled) setIsHydrated(true);
+      }
+    };
+
+    hydrate();
+
+    return () => {
+      cancelled = true;
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = useCallback(async (email, password) => {
@@ -173,9 +210,8 @@ export function useAuth() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Login failed");
 
-      // On login the server returns the full user object (including department,
-      // designation etc.) which the token payload doesn't carry — so we keep
-      // using data.user here and persist it for the initial hydration path.
+      // Login response carries the full user object (department, designation,
+      // timezone, avatarUrl etc.) which the JWT payload doesn't include.
       saveSession(data.accessToken, data.user);
       setUser(data.user);
       setAccessToken(data.accessToken);
