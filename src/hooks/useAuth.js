@@ -52,21 +52,6 @@ function userFromToken(token) {
   }
 }
 
-// Perform the refresh network call with no React state dependencies.
-// Returns the new access token string, or null on failure.
-// This is a plain async function (not a hook) so it can be called safely
-// from the hydration useEffect before any refs are populated.
-async function fetchNewToken() {
-  const res = await fetch("/api/auth/refresh", {
-    method:      "POST",
-    credentials: "same-origin",
-    headers:     { "Content-Type": "application/json" },
-  });
-  if (!res.ok) throw new Error("Refresh failed");
-  const { accessToken } = await res.json();
-  return accessToken;
-}
-
 export function useAuth() {
   const router   = useRouter();
   const timerRef = useRef(null);
@@ -103,11 +88,20 @@ export function useAuth() {
   }, [router]);
 
   const doRefresh = useCallback(async () => {
+    // Coalescing guard — return the in-flight promise if one exists so
+    // concurrent callers (hydration, timer, authFetch) share one request.
     if (refreshPromiseRef.current) return refreshPromiseRef.current;
 
     const promise = (async () => {
       try {
-        const newAccess = await fetchNewToken();
+        const res = await fetch("/api/auth/refresh", {
+          method:      "POST",
+          credentials: "same-origin",
+          headers:     { "Content-Type": "application/json" },
+        });
+        if (!res.ok) throw new Error("Refresh failed");
+        const { accessToken: newAccess } = await res.json();
+
         // Derive user from the fresh server-signed token — never from stale localStorage
         const freshUser = userFromToken(newAccess);
         if (freshUser) {
@@ -133,16 +127,14 @@ export function useAuth() {
     return promise;
   }, [scheduleRefresh]);
 
-  // Populate refs synchronously before any async work can reference them
+  // Assign refs inline (before any effect runs) so they are always populated
+  // when async code inside effects calls doRefreshRef.current or doLogoutRef.current.
+  // Using separate useEffect(() => { ref.current = fn }, [fn]) would defer the
+  // assignment until after paint, causing a null-ref on the very first render.
   doRefreshRef.current = doRefresh;
   doLogoutRef.current  = doLogout;
 
   // ── Hydration ─────────────────────────────────────────────────────────────
-  // FIX: Previously doRefresh was called directly from this effect, but
-  // doLogoutRef was populated in a separate useEffect that hadn't run yet at
-  // this point, so a refresh failure silently left user=null and isHydrated=true
-  // → blank screen.  Now refs are assigned inline above (before the effect runs)
-  // so they're always populated when the async path executes.
   useEffect(() => {
     let cancelled = false;
 
@@ -157,7 +149,7 @@ export function useAuth() {
       const expiry = tokenExpiry(access);
       if (expiry && expiry > Date.now()) {
         // Token still valid — derive user from payload, fall back to stored
-        const freshUser = userFromToken(access) ?? storedUser;
+        const freshUser  = userFromToken(access) ?? storedUser;
         const mergedUser = { ...storedUser, ...freshUser };
         if (!cancelled) {
           setUser(mergedUser);
@@ -168,19 +160,17 @@ export function useAuth() {
         return;
       }
 
-      // Token expired — attempt refresh.
-      // doLogoutRef.current is guaranteed set (inline assignment above).
+      // Token expired — attempt refresh via doRefreshRef so the concurrency
+      // guard (refreshPromiseRef) is respected. If authFetch fires a 401 retry
+      // during this await and also calls doRefresh, both callers share the same
+      // in-flight promise instead of sending two requests with the rotating cookie.
       try {
-        const newAccess = await fetchNewToken();
+        const newAccess = await doRefreshRef.current?.();
+        if (!newAccess) throw new Error("Refresh failed");
         if (cancelled) return;
-        const freshUser  = userFromToken(newAccess);
-        const mergedUser = freshUser ? { ...storedUser, ...freshUser } : storedUser;
-        saveSession(newAccess, mergedUser);
-        setUser(mergedUser);
-        setAccessToken(newAccess);
-        scheduleRefresh(newAccess);
+        // doRefresh already called setUser/setAccessToken/scheduleRefresh/saveSession
+        // internally — nothing more to do here.
       } catch {
-        // Refresh failed — clear session and redirect to login
         if (!cancelled) {
           clearSession();
           router.replace("/login");
