@@ -17,6 +17,7 @@ export default function AdminLeavesPage() {
   const [note,    setNote]    = useState("");
   const [loading, setLoading] = useState(true);
   const [reviewingAction, setReviewingAction] = useState(null);
+  const [recordModal, setRecordModal] = useState(false);
   const { toasts, toast, remove } = useToast();
 
   const fetchLeaves = useCallback(async () => {
@@ -78,6 +79,21 @@ export default function AdminLeavesPage() {
     setNote("");
   };
 
+  const handleRecordPast = async (data) => {
+    const res = await authFetch("/api/leaves/record-past", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    if (!res.ok) return { success: false, error: json.error || "Failed to record past leave" };
+
+    setRecordModal(false);
+    setTab("APPROVED");
+    fetchLeaves();
+    toast(`${json.count} past leave ${json.count === 1 ? "entry" : "entries"} recorded and balance updated.`, "success");
+    return { success: true };
+  };
+
   const TABS = [
     { id: "PENDING",  label: "Pending",  count: counts.PENDING  || 0 },
     { id: "APPROVED", label: "Approved", count: counts.APPROVED || 0 },
@@ -111,7 +127,11 @@ export default function AdminLeavesPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <SectionHeader title="Leave Requests" subtitle="Review and manage employee leaves" />
+      <SectionHeader
+        title="Leave Requests"
+        subtitle="Review and manage employee leaves"
+        action={<Btn onClick={() => setRecordModal(true)}>+ Record Past Leave</Btn>}
+      />
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
       <Card>
         {loading ? <Skeleton height={300} /> : <Table cols={cols} rows={leaves} emptyMsg="No leave requests found." />}
@@ -174,7 +194,112 @@ export default function AdminLeavesPage() {
         </Modal>
       )}
 
+      {recordModal && (
+        <RecordPastLeaveModal
+          authFetch={authFetch}
+          onClose={() => setRecordModal(false)}
+          onSubmit={handleRecordPast}
+        />
+      )}
+
       <ToastStack toasts={toasts} remove={remove} />
     </div>
+  );
+}
+
+function RecordPastLeaveModal({ authFetch, onClose, onSubmit }) {
+  const today = new Date().toISOString().split("T")[0];
+  const yearStart = `${today.slice(0, 4)}-01-01`;
+  const [employees, setEmployees] = useState([]);
+  const [form, setForm] = useState({ userId: "", type: "CL", dates: [today], reason: "" });
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    authFetch("/api/users")
+      .then(res => res.json())
+      .then(data => {
+        const activeEmployees = (data.users || []).filter(user => user.role === "EMPLOYEE");
+        setEmployees(activeEmployees);
+        if (activeEmployees[0]) setForm(f => ({ ...f, userId: String(activeEmployees[0].id) }));
+      })
+      .catch(() => setError("Failed to load employees."));
+  }, [authFetch]);
+
+  const handleSubmit = async () => {
+    setError("");
+    if (!form.userId) { setError("Select an employee."); return; }
+    if (!form.reason.trim() || form.reason.trim().length < 5) { setError("Reason must be at least 5 characters."); return; }
+    if (form.dates.some(date => !date)) { setError("Select every leave date."); return; }
+    if (new Set(form.dates).size !== form.dates.length) { setError("Duplicate leave dates are not allowed."); return; }
+
+    setLoading(true);
+    try {
+      const result = await onSubmit({ ...form, userId: Number(form.userId) });
+      if (!result.success) setError(result.error);
+    } catch (err) {
+      setError(err.message || "Failed to record past leave.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal title="Record Past Leave" onClose={onClose}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <Field label="Employee">
+          <select value={form.userId} onChange={e => setForm(f => ({ ...f, userId: e.target.value }))}>
+            {employees.length === 0 && <option value="">No employees found</option>}
+            {employees.map(employee => (
+              <option key={employee.id} value={employee.id}>{employee.name} - {employee.department}</option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Leave Type">
+          <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+            {Object.entries(LEAVE_LABELS).map(([key, label]) => <option key={key} value={key}>{label} ({key})</option>)}
+          </select>
+        </Field>
+
+        <Field label="Leave Dates" hint="Add each past leave date separately. Sundays and non-final Saturdays are not accepted.">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {form.dates.map((date, index) => (
+              <div key={index} style={{ display: "flex", gap: 8 }}>
+                <input type="date" value={date} min={yearStart} max={today}
+                  onChange={e => setForm(f => ({ ...f, dates: f.dates.map((value, i) => i === index ? e.target.value : value) }))}
+                  style={{ flex: 1 }} />
+                <Btn size="sm" variant="ghost" disabled={form.dates.length === 1 || loading}
+                  onClick={() => setForm(f => ({ ...f, dates: f.dates.filter((_, i) => i !== index) }))}>
+                  Remove
+                </Btn>
+              </div>
+            ))}
+            <Btn size="sm" variant="secondary" disabled={loading || form.dates.length >= 100}
+              onClick={() => setForm(f => ({ ...f, dates: [...f.dates, ""] }))} style={{ alignSelf: "flex-start" }}>
+              + Add Another Date
+            </Btn>
+          </div>
+        </Field>
+
+        <div style={{ padding: "10px 14px", background: "var(--accent-glow)", borderRadius: "var(--radius-sm)", fontSize: 13, color: "var(--accent)" }}>
+          <strong>{form.dates.filter(Boolean).length}</strong> leave {form.dates.filter(Boolean).length === 1 ? "entry" : "entries"} will be marked approved and deducted from the employee balance.
+        </div>
+
+        <Field label="Reason">
+          <textarea value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
+            rows={3} placeholder="Reason for the past leave" style={{ resize: "vertical" }} />
+        </Field>
+
+        {error && <div style={{ color: "var(--danger)", fontSize: 13 }}>{error}</div>}
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <Btn variant="ghost" onClick={onClose} disabled={loading} style={{ flex: 1, justifyContent: "center" }}>Cancel</Btn>
+          <Btn onClick={handleSubmit} loading={loading} style={{ flex: 1, justifyContent: "center" }}>
+            {loading ? "Recording Leaves..." : "Record Leave"}
+          </Btn>
+        </div>
+      </div>
+    </Modal>
   );
 }

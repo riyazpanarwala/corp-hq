@@ -102,6 +102,17 @@ const ApplyLeaveSchema = z
     { message: "Cannot apply leave for past dates", path: ["startDate"] },
   );
 
+const RecordPastLeaveSchema = z
+  .object({
+    userId: z.coerce.number().int().positive(),
+    type:   z.enum(["CL", "SL", "PL"]),
+    dates:  z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).min(1, "Add at least one leave date").max(100),
+    reason: z.string().min(5, "Reason min 5 chars").max(500),
+  })
+  .refine(d => new Set(d.dates).size === d.dates.length, {
+    message: "Duplicate leave dates are not allowed", path: ["dates"],
+  });
+
 const ReviewLeaveSchema = z.object({
   action:     z.enum(["APPROVED", "REJECTED"]),
   reviewNote: z.string().max(500).optional(),
@@ -128,6 +139,6 @@ const RefreshSchema = z.object({ refreshToken: z.string().min(1) });
 
 module.exports = {
   LoginSchema, CheckInSchema, CheckOutSchema,
-  ManualAttendanceSchema, AttendanceFilterSchema, ApplyLeaveSchema, ReviewLeaveSchema,
+  ManualAttendanceSchema, AttendanceFilterSchema, ApplyLeaveSchema, RecordPastLeaveSchema, ReviewLeaveSchema,
   LeaveFilterSchema, CreateUserSchema, RefreshSchema,
 };
