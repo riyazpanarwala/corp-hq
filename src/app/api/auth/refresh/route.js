@@ -36,13 +36,6 @@ export async function POST() {
       data:  { refreshToken: newRefreshToken, expiresAt: refreshTokenExpiry() },
     });
 
-    // FIX: Also update the access_token cookie so the proxy (src/proxy.js)
-    // sees the fresh token on subsequent page navigations.  Previously only
-    // the refresh_token cookie was rotated here, leaving the access_token
-    // cookie stale after the first 15-minute expiry.  The proxy reads the
-    // cookie for every SSR page request — if it's expired the user gets
-    // redirected to /login even though localStorage has a valid token,
-    // producing a blank screen on corp-hq.panarwala.in.
     cookieStore.set("access_token", newAccessToken, {
       httpOnly: true,
       secure:   process.env.NODE_ENV === "production",
