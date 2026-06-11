@@ -5,5 +5,6 @@ export default function robots() {
       disallow: "/",
     },
     host: "https://corp-hq.panarwala.in",
+    sitemap: "https://corp-hq.panarwala.in/sitemap.xml",
   };
 }

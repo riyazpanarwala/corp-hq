@@ -14,6 +14,7 @@ const PUBLIC_PATHS = [
   "/manifest.webmanifest",
   "/icon.svg",
   "/robots.txt",
+  "/sitemap.xml",
 ];
 const ADMIN_PATHS  = ["/api/users", "/api/reports", "/admin"];
 const API_RE       = /^\/api\//;
