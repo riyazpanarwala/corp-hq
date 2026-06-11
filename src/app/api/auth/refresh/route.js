@@ -20,22 +20,15 @@ export async function POST() {
     });
 
     if (!session || !session.user.isActive || session.expiresAt < new Date()) {
-      cookieStore.set("refresh_token", "", {
-        httpOnly: true,
-        secure:   process.env.NODE_ENV === "production",
-        path:     "/api/auth",
-        sameSite: "strict",
-        maxAge:   0,
-      });
+      const expired = { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", maxAge: 0 };
+      // Clear both access_token and refresh_token so the proxy doesn't see a
+      // stale access_token cookie on subsequent requests (mirrors logout behaviour).
+      cookieStore.set("access_token",  "", { ...expired, path: "/" });
+      cookieStore.set("refresh_token", "", { ...expired, path: "/api/auth" });
       return Response.json({ error: "Invalid or expired session" }, { status: 401 });
     }
 
-    const newAccessToken  = await signAccessToken({
-      sub:   String(session.user.id),
-      email: session.user.email,
-      role:  session.user.role,
-      name:  session.user.name,
-    });
+    const newAccessToken  = await signAccessToken({ sub: String(session.user.id), email: session.user.email, role: session.user.role, name: session.user.name });
     const newRefreshToken = await signRefreshToken(session.user.id);
 
     await db.session.update({
@@ -47,7 +40,7 @@ export async function POST() {
     // sees the fresh token on subsequent page navigations.  Previously only
     // the refresh_token cookie was rotated here, leaving the access_token
     // cookie stale after the first 15-minute expiry.  The proxy reads the
-    // cookie for every SSR page request â€” if it's expired the user gets
+    // cookie for every SSR page request — if it's expired the user gets
     // redirected to /login even though localStorage has a valid token,
     // producing a blank screen on corp-hq.panarwala.in.
     cookieStore.set("access_token", newAccessToken, {
@@ -59,11 +52,8 @@ export async function POST() {
     });
 
     cookieStore.set("refresh_token", newRefreshToken, {
-      httpOnly: true,
-      secure:   process.env.NODE_ENV === "production",
-      path:     "/api/auth",
-      sameSite: "strict",
-      maxAge:   7 * 24 * 60 * 60,
+      httpOnly: true, secure: process.env.NODE_ENV === "production",
+      path: "/api/auth", sameSite: "strict", maxAge: 7 * 24 * 60 * 60,
     });
 
     return Response.json({ accessToken: newAccessToken });
