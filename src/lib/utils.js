@@ -38,13 +38,34 @@ function monthStr() {
   return new Date().toISOString().slice(0, 7);
 }
 
+function dateFromString(dateStr) {
+  const [year, month, day] = String(dateStr).split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function isWorkingDay(dateStr) {
+  const date = dateFromString(dateStr);
+  const day = date.getDay();
+  if (day === 0) return false;
+  if (day !== 6) return true;
+
+  const nextSaturday = new Date(date);
+  nextSaturday.setDate(date.getDate() + 7);
+  return nextSaturday.getMonth() !== date.getMonth();
+}
+
 function countWorkingDays(startStr, endStr) {
-  const start = new Date(startStr);
-  const end   = new Date(endStr);
+  const start = dateFromString(startStr);
+  const end   = dateFromString(endStr);
   let count   = 0;
   const d     = new Date(start);
   while (d <= end) {
-    if (d.getDay() !== 0 && d.getDay() !== 6) count++;
+    const dateStr = [
+      d.getFullYear(),
+      String(d.getMonth() + 1).padStart(2, "0"),
+      String(d.getDate()).padStart(2, "0"),
+    ].join("-");
+    if (isWorkingDay(dateStr)) count++;
     d.setDate(d.getDate() + 1);
   }
   return count;
@@ -112,7 +133,7 @@ const LEAVE_CONFIG = {
 
 module.exports = {
   formatTime, formatDate, formatHours, todayStr, monthStr,
-  countWorkingDays, availableDays, resolveAttStatus, downloadCSV,
+  isWorkingDay, countWorkingDays, availableDays, resolveAttStatus, downloadCSV,
   empColor, empInitials,
   LEAVE_CONFIG,
 };

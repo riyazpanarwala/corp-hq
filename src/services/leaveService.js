@@ -2,7 +2,7 @@
 const { db }                       = require("../lib/db");
 const { ApiError }                 = require("../lib/auth");
 const { emitToAdmins, emitToUser } = require("../lib/socket");
-const { countWorkingDays }         = require("../lib/utils");
+const { countWorkingDays, isWorkingDay } = require("../lib/utils");
 
 const COLS = {
   CL: { total: "clTotal", used: "clUsed", pending: "clPending" },
@@ -89,6 +89,102 @@ const leaveService = {
     });
 
     return leave;
+  },
+
+  async recordPast(adminId, { userId, type, dates, reason }) {
+    const sortedDates = [...dates].sort();
+    const nonWorkingDate = sortedDates.find(date => !isWorkingDay(date));
+    if (nonWorkingDate) throw new ApiError(`${nonWorkingDate} is not a working day`, 422);
+    const days = sortedDates.length;
+
+    const employee = await db.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, department: true, timezone: true, isActive: true, role: true },
+    });
+    if (!employee || !employee.isActive || employee.role !== "EMPLOYEE") {
+      throw new ApiError("Employee not found", 404);
+    }
+
+    const today = todayInZone(employee.timezone || "UTC");
+    if (sortedDates.some(date => date > today)) {
+      throw new ApiError("Past leave dates cannot be after today", 422);
+    }
+
+    const leaves = await db.$transaction(async (tx) => {
+      await tx.leaveBalance.upsert({
+        where: { userId },
+        update: {},
+        create: { userId, year: Number(sortedDates[0].slice(0, 4)) },
+      });
+
+      const rows = await tx.$queryRaw`
+        SELECT id, year,
+               cl_total, cl_used, cl_pending,
+               sl_total, sl_used, sl_pending,
+               pl_total, pl_used, pl_pending
+        FROM leave_balances
+        WHERE user_id = ${userId}
+        FOR UPDATE
+      `;
+      if (!rows || rows.length === 0) throw new ApiError("Leave balance not found", 404);
+
+      const balance = rows[0];
+      if (sortedDates.some(date => Number(balance.year) !== Number(date.slice(0, 4)))) {
+        throw new ApiError(`Past leave must be within leave balance year ${balance.year}`, 422);
+      }
+
+      const prefix = type.toLowerCase();
+      const available = Number(balance[`${prefix}_total`])
+        - Number(balance[`${prefix}_used`])
+        - Number(balance[`${prefix}_pending`]);
+      if (days > available) {
+        throw new ApiError(
+          `Insufficient ${type} balance. Available: ${available}, Requested: ${days}`,
+          422,
+          "INSUFFICIENT_BALANCE",
+        );
+      }
+
+      const overlap = await tx.leaveRequest.findFirst({
+        where: {
+          userId,
+          status: { in: ["PENDING", "APPROVED"] },
+          OR: sortedDates.map(date => {
+            const value = new Date(date);
+            return { startDate: { lte: value }, endDate: { gte: value } };
+          }),
+        },
+      });
+      if (overlap) throw new ApiError("Overlapping leave request exists", 409, "OVERLAP");
+
+      const reviewedAt = new Date();
+      const created = await tx.leaveRequest.createManyAndReturn({
+        data: sortedDates.map(date => {
+          const value = new Date(date);
+          return {
+            userId, type, startDate: value, endDate: value, days: 1, reason,
+            status: "APPROVED", reviewedById: adminId, reviewedAt,
+            reviewNote: "Recorded by admin as past leave",
+          };
+        }),
+      });
+
+      await tx.leaveBalance.update({
+        where: { userId },
+        data: { [COLS[type].used]: { increment: days } },
+      });
+      return created;
+    }, {
+      maxWait: 10_000,
+      timeout: 30_000,
+    });
+
+    for (const leave of leaves) {
+      emitToUser(userId, "leave:reviewed", {
+        leaveId: leave.id, status: "APPROVED", reviewNote: leave.reviewNote,
+      });
+    }
+    return leaves;
   },
 
   // FIX (review race condition): Previously, leave.status was checked OUTSIDE
