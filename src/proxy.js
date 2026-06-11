@@ -7,7 +7,14 @@ import { jwtVerify }    from "jose";
 
 const ACCESS_SECRET = new TextEncoder().encode(process.env.JWT_ACCESS_SECRET);
 
-const PUBLIC_PATHS = ["/api/auth/login", "/api/auth/refresh", "/login"];
+const PUBLIC_PATHS = [
+  "/api/auth/login",
+  "/api/auth/refresh",
+  "/login",
+  "/manifest.webmanifest",
+  "/icon.svg",
+  "/robots.txt",
+];
 const ADMIN_PATHS  = ["/api/users", "/api/reports", "/admin"];
 const API_RE       = /^\/api\//;
 

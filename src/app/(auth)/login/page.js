@@ -55,7 +55,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", background: "var(--bg)", backgroundImage: "radial-gradient(ellipse at 15% 50%,rgba(79,142,247,.07) 0%,transparent 55%),radial-gradient(ellipse at 85% 20%,rgba(124,92,252,.07) 0%,transparent 55%)" }}>
+    <div style={{ minHeight: "100vh", display: "flex", backgroundColor: "var(--bg)", backgroundImage: "radial-gradient(ellipse at 15% 50%,rgba(79,142,247,.07) 0%,transparent 55%),radial-gradient(ellipse at 85% 20%,rgba(124,92,252,.07) 0%,transparent 55%)" }}>
       {/* Left branding */}
       <div className="login-left" style={{ flex: 1, flexDirection: "column", justifyContent: "center", padding: "60px 64px", borderRight: "1px solid var(--border)", background: "linear-gradient(160deg,rgba(79,142,247,.04) 0%,transparent 60%)", display: "none" }}>
         <Logo size={52} />
