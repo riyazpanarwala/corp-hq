@@ -1,9 +1,9 @@
-const siteUrl = "https://corp-hq.panarwala.in";
+import { SITE_URL } from "@/lib/site";
 
 export default function sitemap() {
   return [
     {
-      url: `${siteUrl}/login`,
+      url: `${SITE_URL}/login`,
       changeFrequency: "yearly",
       priority: 1,
     },

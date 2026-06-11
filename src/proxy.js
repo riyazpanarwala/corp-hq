@@ -7,7 +7,7 @@ import { jwtVerify }    from "jose";
 
 const ACCESS_SECRET = new TextEncoder().encode(process.env.JWT_ACCESS_SECRET);
 
-const PUBLIC_PATHS = [
+const PUBLIC_PATHS = new Set([
   "/api/auth/login",
   "/api/auth/refresh",
   "/login",
@@ -15,7 +15,7 @@ const PUBLIC_PATHS = [
   "/icon.svg",
   "/robots.txt",
   "/sitemap.xml",
-];
+]);
 const ADMIN_PATHS  = ["/api/users", "/api/reports", "/admin"];
 const API_RE       = /^\/api\//;
 
@@ -25,7 +25,7 @@ const SKIP_FROM_PATHS = new Set(["/"]);
 export async function proxy(request) {
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return NextResponse.next();
+  if (PUBLIC_PATHS.has(pathname)) return NextResponse.next();
   if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) return NextResponse.next();
 
   const cookieToken = request.cookies.get("access_token")?.value ?? null;

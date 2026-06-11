@@ -4,12 +4,11 @@
 // rules at transform time, which causes any @import url(...) that follows it to
 // violate the CSS spec. Using <link> in the HTML head sidesteps this entirely.
 import { AuthProvider } from "@/components/providers/AuthProvider";
+import { SITE_URL } from "@/lib/site";
 import "./globals.css";
 
-const siteUrl = "https://corp-hq.panarwala.in";
-
 export const metadata = {
-  metadataBase: new URL(siteUrl),
+  metadataBase: new URL(SITE_URL),
   applicationName: "CorpHQ",
   title: {
     default: "CorpHQ | Employee Management Portal",

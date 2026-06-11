@@ -2,7 +2,7 @@
 const { db }                       = require("../lib/db");
 const { ApiError }                 = require("../lib/auth");
 const { emitToAdmins, emitToUser } = require("../lib/socket");
-const { countWorkingDays }         = require("../lib/utils");
+const { countWorkingDays, isWorkingDay } = require("../lib/utils");
 
 const COLS = {
   CL: { total: "clTotal", used: "clUsed", pending: "clPending" },
@@ -93,7 +93,7 @@ const leaveService = {
 
   async recordPast(adminId, { userId, type, dates, reason }) {
     const sortedDates = [...dates].sort();
-    const nonWorkingDate = sortedDates.find(date => countWorkingDays(date, date) === 0);
+    const nonWorkingDate = sortedDates.find(date => !isWorkingDay(date));
     if (nonWorkingDate) throw new ApiError(`${nonWorkingDate} is not a working day`, 422);
     const days = sortedDates.length;
 

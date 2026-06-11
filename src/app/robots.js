@@ -1,10 +1,12 @@
+import { SITE_URL } from "@/lib/site";
+
 export default function robots() {
   return {
     rules: {
       userAgent: "*",
       disallow: "/",
     },
-    host: "https://corp-hq.panarwala.in",
-    sitemap: "https://corp-hq.panarwala.in/sitemap.xml",
+    host: SITE_URL,
+    sitemap: `${SITE_URL}/sitemap.xml`,
   };
 }
