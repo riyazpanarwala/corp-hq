@@ -6,9 +6,43 @@
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import "./globals.css";
 
+const siteUrl = "https://corp-hq.panarwala.in";
+
 export const metadata = {
-  title: "CorpHQ — Employee Management Portal",
-  description: "Attendance tracking, leave management, HR analytics",
+  metadataBase: new URL(siteUrl),
+  applicationName: "CorpHQ",
+  title: {
+    default: "CorpHQ | Employee Management Portal",
+    template: "%s | CorpHQ",
+  },
+  description:
+    "Secure employee portal for attendance tracking, leave management, and HR analytics.",
+  alternates: {
+    canonical: "/login",
+  },
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    shortcut: "/icon.svg",
+  },
+  openGraph: {
+    type: "website",
+    url: "/login",
+    siteName: "CorpHQ",
+    title: "CorpHQ | Employee Management Portal",
+    description:
+      "Secure employee portal for attendance tracking, leave management, and HR analytics.",
+  },
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+    googleBot: {
+      index: false,
+      follow: false,
+      noimageindex: true,
+    },
+  },
 };
 
 export default function RootLayout({ children }) {
