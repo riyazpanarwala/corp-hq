@@ -17,28 +17,28 @@ const TimezoneSchema = z.string().refine((timeZone) => {
 }, "Invalid timezone");
 
 const LoginSchema = z.object({
-  email:    z.string().email("Invalid email"),
+  email: z.string().email("Invalid email"),
   password: z.string().min(6, "Password min 6 chars"),
 });
 
 const CheckInSchema = z.object({
   timezone: TimezoneSchema.default("UTC"),
-  notes:    z.string().max(500).optional(),
+  notes: z.string().max(500).optional(),
 });
 
 const CheckOutSchema = z.object({
   timezone: TimezoneSchema.default("UTC"),
-  notes:    z.string().max(500).optional(),
+  notes: z.string().max(500).optional(),
 });
 
 const ManualAttendanceSchema = z
   .object({
-    userId:       z.coerce.number().int().positive(),
-    date:         z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    checkInTime:  TimeStringSchema,
+    userId: z.coerce.number().int().positive(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    checkInTime: TimeStringSchema,
     checkOutTime: TimeStringSchema.optional().or(z.literal("")),
-    timezone:     TimezoneSchema.default("UTC"),
-    notes:        z.string().max(500).optional(),
+    timezone: TimezoneSchema.default("UTC"),
+    notes: z.string().max(500).optional(),
   })
   .refine(d => !d.checkOutTime || d.checkOutTime > d.checkInTime, {
     message: "Check out must be after check in for the selected date",
@@ -46,12 +46,12 @@ const ManualAttendanceSchema = z
   });
 
 const AttendanceFilterSchema = z.object({
-  date:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  month:  z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   userId: z.coerce.number().int().positive().optional(),
   status: z.enum(["late", "halfday", "present"]).optional(),
-  page:   z.coerce.number().int().min(1).default(1),
-  limit:  z.coerce.number().int().min(1).max(200).default(50),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
 // FIX (ApplyLeaveSchema TZ): The original todayISO() used new Date().toISOString()
@@ -73,9 +73,9 @@ function todayInZone(timeZone) {
   try {
     const parts = new Intl.DateTimeFormat("en-US", {
       timeZone,
-      year:  "numeric",
+      year: "numeric",
       month: "2-digit",
-      day:   "2-digit",
+      day: "2-digit",
     }).formatToParts(new Date());
     const v = Object.fromEntries(parts.map(p => [p.type, p.value]));
     return `${v.year}-${v.month}-${v.day}`;
@@ -87,12 +87,15 @@ function todayInZone(timeZone) {
 
 const ApplyLeaveSchema = z
   .object({
-    type:      z.enum(["CL", "SL", "PL"]),
+    type: z.enum(["CL", "SL", "PL"]),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    endDate:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    reason:    z.string().min(5, "Reason min 5 chars").max(500),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    reason: z.string().min(5, "Reason min 5 chars").max(500),
     // timezone is used only for the "past date" validation; it is not stored.
-    timezone:  z.string().optional(),
+    timezone: z.string().optional(),
+    // department is resolved server-side (see POST /api/leaves) and is used
+    // only to scope which holidays offset the chargeable day count; not stored.
+    department: z.string().optional(),
   })
   .refine(d => d.endDate >= d.startDate, {
     message: "End date must be >= start date", path: ["endDate"],
@@ -102,11 +105,40 @@ const ApplyLeaveSchema = z
     { message: "Cannot apply leave for past dates", path: ["startDate"] },
   );
 
+const CreateHolidaySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  name: z.string().min(2, "Name min 2 chars").max(150),
+  description: z.string().max(500).optional(),
+  department: z.string().max(100).optional(),
+});
+
+const RegularizationRequestSchema = z
+  .object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    checkInTime: TimeStringSchema,
+    checkOutTime: TimeStringSchema.optional().or(z.literal("")),
+    timezone: TimezoneSchema.default("UTC"),
+    reason: z.string().min(5, "Reason min 5 chars").max(500),
+  })
+  .refine(d => !d.checkOutTime || d.checkOutTime > d.checkInTime, {
+    message: "Check out must be after check in",
+    path: ["checkOutTime"],
+  })
+  .refine(d => d.date <= todayInZone(d.timezone || "UTC"), {
+    message: "Cannot request regularization for a future date",
+    path: ["date"],
+  });
+
+const ReviewRegularizationSchema = z.object({
+  action: z.enum(["APPROVED", "REJECTED"]),
+  reviewNote: z.string().max(500).optional(),
+});
+
 const RecordPastLeaveSchema = z
   .object({
     userId: z.coerce.number().int().positive(),
-    type:   z.enum(["CL", "SL", "PL"]),
-    dates:  z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).min(1, "Add at least one leave date").max(100),
+    type: z.enum(["CL", "SL", "PL"]),
+    dates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).min(1, "Add at least one leave date").max(100),
     reason: z.string().min(5, "Reason min 5 chars").max(500),
   })
   .refine(d => new Set(d.dates).size === d.dates.length, {
@@ -114,25 +146,25 @@ const RecordPastLeaveSchema = z
   });
 
 const ReviewLeaveSchema = z.object({
-  action:     z.enum(["APPROVED", "REJECTED"]),
+  action: z.enum(["APPROVED", "REJECTED"]),
   reviewNote: z.string().max(500).optional(),
 });
 
 const LeaveFilterSchema = z.object({
   status: z.string().default("all"),
   userId: z.coerce.number().int().positive().optional(),
-  page:   z.coerce.number().int().min(1).default(1),
-  limit:  z.coerce.number().int().min(1).max(100).default(20),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 const CreateUserSchema = z.object({
-  email:       z.string().email(),
-  name:        z.string().min(2).max(100),
-  password:    z.string().min(8),
-  role:        z.enum(["ADMIN", "EMPLOYEE"]).default("EMPLOYEE"),
-  department:  z.string().min(1),
+  email: z.string().email(),
+  name: z.string().min(2).max(100),
+  password: z.string().min(8),
+  role: z.enum(["ADMIN", "EMPLOYEE"]).default("EMPLOYEE"),
+  department: z.string().min(1),
   designation: z.string().optional(),
-  timezone:    z.string().default("UTC"),
+  timezone: z.string().default("UTC"),
 });
 
 const RefreshSchema = z.object({ refreshToken: z.string().min(1) });
@@ -141,4 +173,5 @@ module.exports = {
   LoginSchema, CheckInSchema, CheckOutSchema,
   ManualAttendanceSchema, AttendanceFilterSchema, ApplyLeaveSchema, RecordPastLeaveSchema, ReviewLeaveSchema,
   LeaveFilterSchema, CreateUserSchema, RefreshSchema,
+  CreateHolidaySchema, RegularizationRequestSchema, ReviewRegularizationSchema,
 };

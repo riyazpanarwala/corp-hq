@@ -33,6 +33,7 @@ const BADGE_MAP = {
   cancelled: { color: "#5a6478", label: "Cancelled" },
   admin: { color: "#4f8ef7", label: "Admin" },
   employee: { color: "#22d3a5", label: "Employee" },
+  holiday: { color: "#7c5cfc", label: "Holiday" },
 };
 
 export function Badge({ status }) {

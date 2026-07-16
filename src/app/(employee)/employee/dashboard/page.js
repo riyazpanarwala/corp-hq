@@ -11,6 +11,7 @@ export default function EmployeeDashboardPage() {
   const [monthAtt, setMonthAtt] = useState([]);
   const [balance, setBalance] = useState(null);
   const [myLeaves, setMyLeaves] = useState([]);
+  const [upcomingHolidays, setUpcomingHolidays] = useState([]);
   const [elapsed, setElapsed] = useState(null);
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
@@ -28,25 +29,39 @@ export default function EmployeeDashboardPage() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [todayRes, monthRes, balRes, lvRes] = await Promise.all([
+      const yearNow = new Date().getFullYear();
+      const [todayRes, monthRes, balRes, lvRes, holRes, holNextRes] = await Promise.all([
         authFetch("/api/attendance/today"),
         authFetch(`/api/attendance?month=${month}&limit=60`),
         authFetch("/api/leaves/balance"),
         authFetch("/api/leaves?limit=5"),
+        authFetch(`/api/holidays?year=${yearNow}`),
+        authFetch(`/api/holidays?year=${yearNow + 1}`),
       ]);
-      const [today, monthData, balData, lvData] = await Promise.all([
-        todayRes.json(), monthRes.json(), balRes.json(), lvRes.json(),
+      const [today, monthData, balData, lvData, holData, holNextData] = await Promise.all([
+        todayRes.json(), monthRes.json(), balRes.json(), lvRes.json(), holRes.json(), holNextRes.json(),
       ]);
       setTodayRec(today.record ?? null);
       setMonthAtt(monthData.records || []);
       setBalance(balData.balance);
       setMyLeaves(lvData.leaves || []);
+
+      // Combine current + next year so holidays right at year-end still show
+      // up, filter to future dates scoped to "all departments" or the
+      // employee's own department, and keep the next 3.
+      const todayStr = new Date().toISOString().split("T")[0];
+      const allHolidays = [...(holData.holidays || []), ...(holNextData.holidays || [])];
+      const upcoming = allHolidays
+        .filter(h => h.date >= todayStr && (!h.department || h.department === user?.department))
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .slice(0, 3);
+      setUpcomingHolidays(upcoming);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [authFetch, month]);
+  }, [authFetch, month, user?.department]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -125,6 +140,13 @@ export default function EmployeeDashboardPage() {
     return Math.max(0, (balance[`${k}Total`] || 0) - (balance[`${k}Used`] || 0) - (balance[`${k}Pending`] || 0));
   };
 
+  const daysUntil = (dateStr) => {
+    const diff = Math.ceil((new Date(`${dateStr}T00:00:00`) - new Date(new Date().toDateString())) / 86_400_000);
+    if (diff === 0) return "Today";
+    if (diff === 1) return "Tomorrow";
+    return `In ${diff} days`;
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
       {toast && (
@@ -192,6 +214,37 @@ export default function EmployeeDashboardPage() {
         <StatCard icon="🏥" label="Sick Leave" value={avail("SL")} sub={`of ${balance?.slTotal || 10} days`} color="var(--accent2)" />
       </div>
 
+      {/* Upcoming Holidays widget */}
+      <Card>
+        <h3 style={{ fontFamily: "Syne, sans-serif", fontWeight: 700, fontSize: 15, marginBottom: 14 }}>🎉 Upcoming Holidays</h3>
+        {upcomingHolidays.length === 0 ? (
+          <p style={{ color: "var(--text3)", fontSize: 13 }}>No upcoming holidays scheduled.</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {upcomingHolidays.map(h => (
+              <div key={h.id} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "10px 14px", background: "var(--surface2)", borderRadius: "var(--radius-md)",
+              }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{h.name}</div>
+                  <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
+                    {formatDate(h.date)}{h.department ? ` · ${h.department} only` : ""}
+                  </div>
+                </div>
+                <span style={{
+                  fontSize: 11, fontWeight: 700, color: "var(--accent2)",
+                  background: "rgba(124,92,252,.12)", padding: "3px 10px", borderRadius: 999,
+                  whiteSpace: "nowrap",
+                }}>
+                  {daysUntil(h.date)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
       <Card>
         <h3 style={{ fontFamily: "Syne, sans-serif", fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Recent Attendance</h3>
         <Table
@@ -236,4 +289,3 @@ function DashSkeleton() {
     </div>
   );
 }
-
