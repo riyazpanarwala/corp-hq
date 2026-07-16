@@ -38,17 +38,31 @@ export default function EmployeeAttendancePage() {
   const handleCheckIn = async () => {
     setChecking(true);
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const res = await authFetch("/api/attendance", { method: "POST", body: JSON.stringify({ timezone: tz }) });
-    if (res.ok) fetchRecords();
-    setChecking(false);
+    try {
+      const res = await authFetch("/api/attendance", { method: "POST", body: JSON.stringify({ timezone: tz }) });
+      if (!res.ok) throw new Error("Attendance request failed");
+      await fetchRecords();
+    } catch (error) {
+      console.error(error);
+      // Surface an error message to the user.
+    } finally {
+      setChecking(false);
+    }
   };
 
   const handleCheckOut = async () => {
     setChecking(true);
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const res = await authFetch("/api/attendance/checkout", { method: "PATCH", body: JSON.stringify({ timezone: tz }) });
-    if (res.ok) fetchRecords();
-    setChecking(false);
+    try {
+      const res = await authFetch("/api/attendance/checkout", { method: "PATCH", body: JSON.stringify({ timezone: tz }) });
+      if (!res.ok) throw new Error("Attendance request failed");
+      await fetchRecords();
+    } catch (error) {
+      console.error(error);
+      // Surface an error message to the user.
+    } finally {
+      setChecking(false);
+    }
   };
 
   const isIn = todayRec && !todayRec.checkOut;
