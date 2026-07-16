@@ -13,7 +13,7 @@ function AdminGuard({ children }) {
   useEffect(() => {
     if (!isHydrated) return;
     if (!isLoggedIn) { router.replace("/login"); return; }
-    if (!isAdmin)    { router.replace("/employee/dashboard"); }
+    if (!isAdmin) { router.replace("/employee/dashboard"); }
   }, [isHydrated, isLoggedIn, isAdmin, router]);
 
   if (!isHydrated) {
@@ -29,7 +29,12 @@ function AdminGuard({ children }) {
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
       <Sidebar />
-      <main style={{ flex: 1, padding: 28, overflowY: "auto", minWidth: 0, background: "var(--bg)" }}>
+      {/* FIX (mobile responsiveness): the sidebar is now an off-canvas drawer on
+          mobile (position: fixed) instead of a flex sibling, so it no longer
+          squeezes this <main>. The "app-main" class picks up mobile-only
+          padding overrides in globals.css so content clears the fixed
+          hamburger button and isn't flush against the screen edges. */}
+      <main className="app-main" style={{ flex: 1, padding: 28, overflowY: "auto", minWidth: 0, background: "var(--bg)" }}>
         <div className="fade-in">{children}</div>
       </main>
     </div>

@@ -20,19 +20,19 @@ export function Avatar({ initials, size = 36, color = "var(--accent)" }) {
 
 // ─── Badge ────────────────────────────────────────────────────
 const BADGE_MAP = {
-  present:       { color: "#22d3a5", label: "Present"     },
-  absent:        { color: "#f04444", label: "Absent"      },
-  late:          { color: "#f5a623", label: "Late"        },
-  halfday:       { color: "#4f8ef7", label: "Half Day"    },
-  "half-day":    { color: "#4f8ef7", label: "Half Day"    },
-  checkedin:     { color: "#38bdf8", label: "In Office"   },
+  present: { color: "#22d3a5", label: "Present" },
+  absent: { color: "#f04444", label: "Absent" },
+  late: { color: "#f5a623", label: "Late" },
+  halfday: { color: "#4f8ef7", label: "Half Day" },
+  "half-day": { color: "#4f8ef7", label: "Half Day" },
+  checkedin: { color: "#38bdf8", label: "In Office" },
   "checked-out": { color: "#8892a4", label: "Checked Out" },
-  pending:       { color: "#f5a623", label: "Pending"     },
-  approved:      { color: "#22d3a5", label: "Approved"    },
-  rejected:      { color: "#f04444", label: "Rejected"    },
-  cancelled:     { color: "#5a6478", label: "Cancelled"   },
-  admin:         { color: "#4f8ef7", label: "Admin"       },
-  employee:      { color: "#22d3a5", label: "Employee"    },
+  pending: { color: "#f5a623", label: "Pending" },
+  approved: { color: "#22d3a5", label: "Approved" },
+  rejected: { color: "#f04444", label: "Rejected" },
+  cancelled: { color: "#5a6478", label: "Cancelled" },
+  admin: { color: "#4f8ef7", label: "Admin" },
+  employee: { color: "#22d3a5", label: "Employee" },
 };
 
 export function Badge({ status }) {
@@ -51,9 +51,17 @@ export function Badge({ status }) {
 }
 
 // ─── Card ─────────────────────────────────────────────────────
+// FIX (mobile "too much space" in stat blocks): Card's 24px padding and
+// StatCard's 44px icon box / 26px value text were fixed inline styles with
+// no mobile awareness. Combined with grids like
+// `repeat(auto-fit,minmax(155px,1fr))` collapsing to a single column on
+// narrow phones, each card stretched full-width around a small number,
+// looking mostly empty. These class hooks (ui-card / ui-stat-icon /
+// ui-stat-value) let globals.css shrink padding and sizing at the mobile
+// breakpoint without touching desktop layout.
 export function Card({ children, style = {}, className = "" }) {
   return (
-    <div className={`fade-up ${className}`} style={{
+    <div className={`fade-up ui-card ${className}`} style={{
       background: "var(--surface)", border: "1px solid var(--border)",
       borderRadius: "var(--radius-lg)", padding: 24, ...style,
     }}>
@@ -67,7 +75,7 @@ export function StatCard({ icon, label, value, sub, color = "var(--accent)", tre
   return (
     <Card style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div style={{
+        <div className="ui-stat-icon" style={{
           width: 44, height: 44, borderRadius: "var(--radius-md)",
           background: `${color}16`, display: "flex", alignItems: "center",
           justifyContent: "center", fontSize: 20,
@@ -79,7 +87,7 @@ export function StatCard({ icon, label, value, sub, color = "var(--accent)", tre
         )}
       </div>
       <div>
-        <div style={{ fontSize: 26, fontWeight: 700, fontFamily: "Syne, sans-serif", lineHeight: 1.1 }}>{value}</div>
+        <div className="ui-stat-value" style={{ fontSize: 26, fontWeight: 700, fontFamily: "Syne, sans-serif", lineHeight: 1.1 }}>{value}</div>
         <div style={{ fontSize: 13, color: "var(--text2)", marginTop: 3 }}>{label}</div>
         {sub && <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 3 }}>{sub}</div>}
       </div>
@@ -89,17 +97,17 @@ export function StatCard({ icon, label, value, sub, color = "var(--accent)", tre
 
 // ─── Button ───────────────────────────────────────────────────
 const BTN_VARIANTS = {
-  primary:   { background: "var(--accent)",   color: "#fff",         border: "none" },
-  secondary: { background: "var(--surface2)", color: "var(--text)",  border: "1px solid var(--border)" },
-  success:   { background: "var(--success)",  color: "#061a12",      border: "none" },
-  danger:    { background: "var(--danger)",   color: "#fff",         border: "none" },
-  warning:   { background: "var(--warning)",  color: "#1a0e00",      border: "none" },
-  ghost:     { background: "transparent",     color: "var(--text2)", border: "1px solid var(--border)" },
+  primary: { background: "var(--accent)", color: "#fff", border: "none" },
+  secondary: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--border)" },
+  success: { background: "var(--success)", color: "#061a12", border: "none" },
+  danger: { background: "var(--danger)", color: "#fff", border: "none" },
+  warning: { background: "var(--warning)", color: "#1a0e00", border: "none" },
+  ghost: { background: "transparent", color: "var(--text2)", border: "1px solid var(--border)" },
 };
 
 const BTN_SIZES = {
-  xs: { padding: "4px 10px",  fontSize: 11, borderRadius: 7  },
-  sm: { padding: "6px 14px",  fontSize: 13, borderRadius: 9  },
+  xs: { padding: "4px 10px", fontSize: 11, borderRadius: 7 },
+  sm: { padding: "6px 14px", fontSize: 13, borderRadius: 9 },
   md: { padding: "10px 20px", fontSize: 14, borderRadius: 10 },
   lg: { padding: "13px 28px", fontSize: 15, borderRadius: 12 },
 };
@@ -115,13 +123,13 @@ export function Btn({ children, onClick, variant = "primary", size = "md", disab
         ...BTN_VARIANTS[variant], ...BTN_SIZES[size],
         fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6,
         opacity: (disabled || loading) ? 0.45 : 1,
-        cursor:  (disabled || loading) ? "not-allowed" : "pointer",
+        cursor: (disabled || loading) ? "not-allowed" : "pointer",
         transition: "opacity .15s, transform .15s", ...style,
       }}
       onMouseEnter={e => { if (!disabled) e.currentTarget.style.opacity = "0.82"; }}
       onMouseLeave={e => { if (!disabled) e.currentTarget.style.opacity = "1"; }}
-      onMouseDown={e  => { if (!disabled) e.currentTarget.style.transform = "scale(.97)"; }}
-      onMouseUp={e    => { e.currentTarget.style.transform = "scale(1)"; }}
+      onMouseDown={e => { if (!disabled) e.currentTarget.style.transform = "scale(.97)"; }}
+      onMouseUp={e => { e.currentTarget.style.transform = "scale(1)"; }}
     >
       {loading && <Spinner size={14} />}
       {children}
@@ -233,7 +241,7 @@ export function Tabs({ tabs, active, onChange }) {
         <button key={tab.id} onClick={() => onChange(tab.id)} style={{
           padding: "7px 16px", borderRadius: 9, border: "none", cursor: "pointer",
           background: active === tab.id ? "var(--accent)" : "transparent",
-          color:      active === tab.id ? "#fff" : "var(--text2)",
+          color: active === tab.id ? "#fff" : "var(--text2)",
           fontSize: 13, fontWeight: 600, transition: "all .15s",
           display: "flex", alignItems: "center", gap: 6,
         }}>
@@ -266,10 +274,10 @@ export function SectionHeader({ title, subtitle, action }) {
 // ─── ToastStack ───────────────────────────────────────────────
 export function ToastStack({ toasts, remove }) {
   const S = {
-    success: { border: "var(--success)", bg: "rgba(34,211,165,.1)",  icon: "✅" },
-    error:   { border: "var(--danger)",  bg: "rgba(240,68,68,.1)",   icon: "❌" },
-    warning: { border: "var(--warning)", bg: "rgba(245,166,35,.1)",  icon: "⚠️" },
-    info:    { border: "var(--border2)", bg: "var(--surface2)",      icon: "ℹ️" },
+    success: { border: "var(--success)", bg: "rgba(34,211,165,.1)", icon: "✅" },
+    error: { border: "var(--danger)", bg: "rgba(240,68,68,.1)", icon: "❌" },
+    warning: { border: "var(--warning)", bg: "rgba(245,166,35,.1)", icon: "⚠️" },
+    info: { border: "var(--border2)", bg: "var(--surface2)", icon: "ℹ️" },
   };
   return (
     <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, display: "flex", flexDirection: "column", gap: 10, pointerEvents: "none" }}>
@@ -297,7 +305,7 @@ export function ToastStack({ toasts, remove }) {
 // ─── useToast ─────────────────────────────────────────────────
 export function useToast() {
   const [toasts, setToasts] = useState([]);
-  const toast  = useCallback((message, type = "info") => {
+  const toast = useCallback((message, type = "info") => {
     const id = `t-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setToasts(t => [...t, { id, message, type }]);
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 4500);
@@ -341,7 +349,7 @@ export function Field({ label, children, hint, error }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <label style={{ fontSize: 13, color: "var(--text2)", fontWeight: 500 }}>{label}</label>
       {children}
-      {hint  && !error && <span style={{ fontSize: 11, color: "var(--text3)" }}>{hint}</span>}
+      {hint && !error && <span style={{ fontSize: 11, color: "var(--text3)" }}>{hint}</span>}
       {error && <span style={{ fontSize: 12, color: "var(--danger)" }}>⚠ {error}</span>}
     </div>
   );
@@ -366,7 +374,7 @@ export function Skeleton({ width = "100%", height = 20, borderRadius = 8 }) {
 // ─── EmpCell ──────────────────────────────────────────────────
 export function EmpCell({ emp, sub }) {
   if (!emp) return <span style={{ color: "var(--text3)" }}>—</span>;
-  const color    = empColor(emp.name, emp.id);
+  const color = empColor(emp.name, emp.id);
   const initials = empInitials(emp.name);
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

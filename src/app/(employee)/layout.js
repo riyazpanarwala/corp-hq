@@ -12,8 +12,8 @@ function EmployeeGuard({ children }) {
 
   useEffect(() => {
     if (!isHydrated) return;
-    if (!isLoggedIn)  { router.replace("/login"); return; }
-    if (!isEmployee)  { router.replace("/admin/dashboard"); }
+    if (!isLoggedIn) { router.replace("/login"); return; }
+    if (!isEmployee) { router.replace("/admin/dashboard"); }
   }, [isHydrated, isLoggedIn, isEmployee, router]);
 
   if (!isHydrated) {
@@ -29,7 +29,8 @@ function EmployeeGuard({ children }) {
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
       <Sidebar />
-      <main style={{ flex: 1, padding: 28, overflowY: "auto", minWidth: 0, background: "var(--bg)" }}>
+      {/* FIX (mobile responsiveness): see (admin)/layout.js — same reasoning. */}
+      <main className="app-main" style={{ flex: 1, padding: 28, overflowY: "auto", minWidth: 0, background: "var(--bg)" }}>
         <div className="fade-in">{children}</div>
       </main>
     </div>

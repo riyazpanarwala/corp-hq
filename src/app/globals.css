@@ -105,3 +105,34 @@ button        { cursor: pointer; font-family: 'DM Sans', sans-serif; }
   .stagger > *:nth-child(6) { animation-delay:.24s }
   .truncate { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
 }
+
+@media (max-width: 768px) {
+  .app-main {
+    padding: 72px 14px 24px !important;
+  }
+}
+
+/* FIX ("square block has too much space" on mobile): StatCard grids use
+   `repeat(auto-fit,minmax(155px,1fr))`, which collapses to a single column
+   once the container is narrower than ~2*155px+gap. On phones that leaves
+   each card stretched full-width around one small number — mostly empty
+   space. Below the breakpoint we force 2 columns, shrink Card's padding,
+   and shrink the StatCard icon box / value text to match the smaller cards.
+   Desktop is untouched since these rules only apply under 640px. */
+@media (max-width: 640px) {
+  .ui-card {
+    padding: 16px !important;
+  }
+  .ui-stat-icon {
+    width: 36px !important;
+    height: 36px !important;
+    font-size: 16px !important;
+  }
+  .ui-stat-value {
+    font-size: 20px !important;
+  }
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+}
