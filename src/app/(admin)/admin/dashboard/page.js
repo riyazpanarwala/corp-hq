@@ -7,11 +7,11 @@ import { formatTime, formatDate, resolveAttStatus, empColor, empInitials, todayS
 
 export default function AdminDashboardPage() {
   const { authFetch, socketOn } = useAuthContext();
-  const [loading,  setLoading]  = useState(true);
+  const [loading, setLoading] = useState(true);
   const [todayAtt, setTodayAtt] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
   const [activity, setActivity] = useState([]);
-  const [pending,  setPending]  = useState([]);
+  const [pending, setPending] = useState([]);
 
   const today = todayStr();
 
@@ -37,17 +37,17 @@ export default function AdminDashboardPage() {
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
   useEffect(() => {
-    const off1 = socketOn("attendance:checkin",  fetchAll);
+    const off1 = socketOn("attendance:checkin", fetchAll);
     const off2 = socketOn("attendance:checkout", fetchAll);
-    const off3 = socketOn("leave:applied",       fetchAll);
+    const off3 = socketOn("leave:applied", fetchAll);
     return () => { off1(); off2(); off3(); };
   }, [socketOn, fetchAll]);
 
   if (loading) return <DashboardSkeleton />;
 
   const presentCount = todayAtt.length;
-  const empCount     = allUsers.length;
-  const lateCount    = todayAtt.filter(a => a.isLate).length;
+  const empCount = allUsers.length;
+  const lateCount = todayAtt.filter(a => a.isLate).length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
@@ -56,12 +56,12 @@ export default function AdminDashboardPage() {
         subtitle={new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
       />
 
-      <div className="stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 14 }}>
-        <StatCard icon="👥" label="Total Employees" value={empCount}               color="var(--accent)"  trend={5} />
-        <StatCard icon="✅" label="Present Today"   value={presentCount}            color="var(--success)" sub={empCount ? `${Math.round(presentCount/empCount*100)}% rate` : ""} />
-        <StatCard icon="⚠️" label="Late Today"      value={lateCount}               color="var(--warning)" />
-        <StatCard icon="🔴" label="Absent Today"    value={empCount - presentCount} color="var(--danger)"  />
-        <StatCard icon="📋" label="Pending Leaves"  value={pending.length}          color="var(--accent2)" />
+      <div className="stagger stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 14 }}>
+        <StatCard icon="👥" label="Total Employees" value={empCount} color="var(--accent)" trend={5} />
+        <StatCard icon="✅" label="Present Today" value={presentCount} color="var(--success)" sub={empCount ? `${Math.round(presentCount / empCount * 100)}% rate` : ""} />
+        <StatCard icon="⚠️" label="Late Today" value={lateCount} color="var(--warning)" />
+        <StatCard icon="🔴" label="Absent Today" value={empCount - presentCount} color="var(--danger)" />
+        <StatCard icon="📋" label="Pending Leaves" value={pending.length} color="var(--accent2)" />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
@@ -74,7 +74,7 @@ export default function AdminDashboardPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {activity.length === 0 && <p style={{ color: "var(--text3)", fontSize: 13 }}>No activity yet today.</p>}
             {activity.map((r, i) => {
-              const emp   = r.user;
+              const emp = r.user;
               const color = empColor(emp?.name, emp?.id);
               return (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", background: "var(--surface2)", borderRadius: "var(--radius-md)" }}>
@@ -97,7 +97,7 @@ export default function AdminDashboardPage() {
           <h3 style={{ fontFamily: "Syne, sans-serif", fontWeight: 700, fontSize: 15, marginBottom: 16 }}>Today's Roster</h3>
           <div style={{ display: "flex", flexDirection: "column" }}>
             {allUsers.map(emp => {
-              const rec   = todayAtt.find(a => a.userId === emp.id);
+              const rec = todayAtt.find(a => a.userId === emp.id);
               const color = empColor(emp.name, emp.id);
               return (
                 <div key={emp.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
@@ -125,7 +125,7 @@ export default function AdminDashboardPage() {
             <span style={{ fontSize: 12, color: "var(--warning)", fontWeight: 600 }}>{pending.length} request{pending.length !== 1 ? "s" : ""}</span>
           </div>
           {pending.map(l => {
-            const emp   = l.employee;
+            const emp = l.employee;
             const color = empColor(emp?.name, emp?.id);
             return (
               <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
@@ -153,7 +153,7 @@ function DashboardSkeleton() {
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
       <Skeleton height={32} width={300} />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 14 }}>
-        {[...Array(5)].map((_,i) => <Skeleton key={i} height={110} />)}
+        {[...Array(5)].map((_, i) => <Skeleton key={i} height={110} />)}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
         <Skeleton height={320} />

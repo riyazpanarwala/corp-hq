@@ -7,12 +7,12 @@ import { formatTime, formatDate, formatHours, resolveAttStatus } from "@/lib/uti
 
 export default function EmployeeAttendancePage() {
   const { authFetch } = useAuthContext();
-  const [records,  setRecords]  = useState([]);
+  const [records, setRecords] = useState([]);
   const [todayRec, setTodayRec] = useState(null);
-  const [elapsed,  setElapsed]  = useState(null);
-  const [loading,  setLoading]  = useState(true);
+  const [elapsed, setElapsed] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
-  const [month,    setMonth]    = useState(new Date().toISOString().slice(0,7));
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
 
   const fetchRecords = useCallback(async () => {
     const [monthRes, todayRes] = await Promise.all([
@@ -37,7 +37,7 @@ export default function EmployeeAttendancePage() {
 
   const handleCheckIn = async () => {
     setChecking(true);
-    const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const res = await authFetch("/api/attendance", { method: "POST", body: JSON.stringify({ timezone: tz }) });
     if (res.ok) fetchRecords();
     setChecking(false);
@@ -45,15 +45,15 @@ export default function EmployeeAttendancePage() {
 
   const handleCheckOut = async () => {
     setChecking(true);
-    const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const res = await authFetch("/api/attendance/checkout", { method: "PATCH", body: JSON.stringify({ timezone: tz }) });
     if (res.ok) fetchRecords();
     setChecking(false);
   };
 
-  const isIn   = todayRec && !todayRec.checkOut;
+  const isIn = todayRec && !todayRec.checkOut;
   const isDone = todayRec && !!todayRec.checkOut;
-  const totalH = records.reduce((s, r) => s + (Number(r.hoursWorked)||0), 0);
+  const totalH = records.reduce((s, r) => s + (Number(r.hoursWorked) || 0), 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -73,9 +73,9 @@ export default function EmployeeAttendancePage() {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 14 }}>
           {[
-            { label: "Check In",    value: formatTime(todayRec?.checkIn, todayRec?.checkInTz) },
-            { label: "Check Out",   value: formatTime(todayRec?.checkOut, todayRec?.checkOutTz || todayRec?.checkInTz) },
-            { label: "Hours",       value: isIn && elapsed ? formatHours(elapsed) : formatHours(todayRec?.hoursWorked) },
+            { label: "Check In", value: formatTime(todayRec?.checkIn, todayRec?.checkInTz) },
+            { label: "Check Out", value: formatTime(todayRec?.checkOut, todayRec?.checkOutTz || todayRec?.checkInTz) },
+            { label: "Hours", value: isIn && elapsed ? formatHours(elapsed) : formatHours(todayRec?.hoursWorked) },
           ].map(c => (
             <div key={c.label} style={{ background: "var(--surface2)", borderRadius: "var(--radius-sm)", padding: "10px 12px", textAlign: "center" }}>
               <div style={{ fontSize: 13, fontWeight: 700 }}>{c.value}</div>
@@ -84,29 +84,29 @@ export default function EmployeeAttendancePage() {
           ))}
         </div>
         {!todayRec && <Btn onClick={handleCheckIn} loading={checking} variant="success" size="md" style={{ width: "100%", justifyContent: "center" }}>✅ Check In</Btn>}
-        {isIn      && <Btn onClick={handleCheckOut} loading={checking} variant="danger" size="md" style={{ width: "100%", justifyContent: "center" }}>🚪 Check Out</Btn>}
+        {isIn && <Btn onClick={handleCheckOut} loading={checking} variant="danger" size="md" style={{ width: "100%", justifyContent: "center" }}>🚪 Check Out</Btn>}
       </Card>
 
       {/* Month stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 14 }}>
-        <StatCard icon="✅" label="On Time"    value={records.filter(r=>!r.isLate&&!r.isHalfDay).length} color="var(--success)" />
-        <StatCard icon="⚠️" label="Late"       value={records.filter(r=>r.isLate).length}                color="var(--warning)" />
-        <StatCard icon="🌓" label="Half Days"  value={records.filter(r=>r.isHalfDay).length}             color="var(--accent)"  />
-        <StatCard icon="⏱️" label="Total Hours" value={formatHours(totalH)}                              color="var(--accent2)" />
+      <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 14 }}>
+        <StatCard icon="✅" label="On Time" value={records.filter(r => !r.isLate && !r.isHalfDay).length} color="var(--success)" />
+        <StatCard icon="⚠️" label="Late" value={records.filter(r => r.isLate).length} color="var(--warning)" />
+        <StatCard icon="🌓" label="Half Days" value={records.filter(r => r.isHalfDay).length} color="var(--accent)" />
+        <StatCard icon="⏱️" label="Total Hours" value={formatHours(totalH)} color="var(--accent2)" />
       </div>
 
       <Card>
         {loading ? <Skeleton height={300} /> : (
           <Table
             cols={[
-              { key: "date",     label: "Date",      render: r => formatDate(r.date) },
-              { key: "checkIn",  label: "Check In",  render: r => formatTime(r.checkIn, r.checkInTz) },
+              { key: "date", label: "Date", render: r => formatDate(r.date) },
+              { key: "checkIn", label: "Check In", render: r => formatTime(r.checkIn, r.checkInTz) },
               { key: "checkOut", label: "Check Out", render: r => formatTime(r.checkOut, r.checkOutTz || r.checkInTz) },
-              { key: "hours",    label: "Hours",     render: r => formatHours(r.hoursWorked) },
-              { key: "late",     label: "Late By",   render: r => r.isLate ? <span style={{color:"var(--warning)"}}>+{r.lateMinutes}m</span> : "—" },
-              { key: "status",   label: "Status",    render: r => <Badge status={resolveAttStatus(r)} /> },
+              { key: "hours", label: "Hours", render: r => formatHours(r.hoursWorked) },
+              { key: "late", label: "Late By", render: r => r.isLate ? <span style={{ color: "var(--warning)" }}>+{r.lateMinutes}m</span> : "—" },
+              { key: "status", label: "Status", render: r => <Badge status={resolveAttStatus(r)} /> },
             ]}
-            rows={[...records].sort((a,b) => b.date.localeCompare(a.date))}
+            rows={[...records].sort((a, b) => b.date.localeCompare(a.date))}
             emptyMsg="No attendance records for this month."
           />
         )}

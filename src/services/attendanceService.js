@@ -1,6 +1,6 @@
 // src/services/attendanceService.js
-const { db }           = require("../lib/db");
-const { ApiError }     = require("../lib/auth");
+const { db } = require("../lib/db");
+const { ApiError } = require("../lib/auth");
 const { emitToAdmins } = require("../lib/socket");
 
 function zonedDateTimeToUtc(date, time, timeZone) {
@@ -57,30 +57,55 @@ const attendanceService = {
     return cfg;
   },
 
+  // FIX (late-by "+0m" bug): isLate is still gated by the grace threshold
+  // (work start + lateThresholdMin, e.g. 09:00 + 30min = 09:30) — arriving at
+  // or before that instant is never late. But the previously-reported
+  // "lateMinutes" measured minutes past the *threshold* (09:30), not minutes
+  // past the *actual work start* (09:00). That meant checking in a few
+  // seconds after 09:30 correctly flagged isLate=true, but Math.floor()'d the
+  // few seconds down to 0 minutes — producing the confusing "Late  +0m" badge
+  // even though the employee was genuinely ~30 minutes late from the official
+  // start time.
+  //
+  // lateMinutes now measures minutes elapsed since the official work start
+  // time whenever isLate is true, which is the number people actually expect
+  // to see next to a "Late" badge (e.g. checking in at 09:30:05 → "+30m",
+  // not "+0m"). The isLate gate itself (relative to the grace threshold) is
+  // unchanged, so the grace period still behaves exactly as configured.
   computeLate(now, cfg, timeZone = "UTC") {
     const date = dateStringInZone(now, timeZone);
+
+    const workStart = zonedDateTimeToUtc(
+      date,
+      `${String(cfg.workStartHour).padStart(2, "0")}:${String(cfg.workStartMinute).padStart(2, "0")}`,
+      timeZone,
+    );
+
     const thresholdMinutes = cfg.workStartMinute + cfg.lateThresholdMin;
-    const thresholdHour    = cfg.workStartHour + Math.floor(thresholdMinutes / 60);
-    const thresholdMinute  = thresholdMinutes % 60;
+    const thresholdHour = cfg.workStartHour + Math.floor(thresholdMinutes / 60);
+    const thresholdMinute = thresholdMinutes % 60;
     const threshold = zonedDateTimeToUtc(
       date,
       `${String(thresholdHour).padStart(2, "0")}:${String(thresholdMinute).padStart(2, "0")}`,
       timeZone,
     );
-    const isLate      = now > threshold;
-    const lateMinutes = isLate ? Math.floor((now.getTime() - threshold.getTime()) / 60_000) : 0;
+
+    const isLate = now > threshold;
+    const lateMinutes = isLate
+      ? Math.floor((now.getTime() - workStart.getTime()) / 60_000)
+      : 0;
     return { isLate, lateMinutes };
   },
 
   async checkIn(userId, { timezone, notes }) {
-    const today  = this.todayDate(timezone);
-    const cfg    = await this.getConfig();
+    const today = this.todayDate(timezone);
+    const cfg = await this.getConfig();
     const exists = await db.attendance.findUnique({
       where: { userId_date: { userId, date: today } },
     });
     if (exists) throw new ApiError("Already checked in today", 409, "DUPLICATE_CHECKIN");
 
-    const now                     = new Date();
+    const now = new Date();
     const { isLate, lateMinutes } = this.computeLate(now, cfg, timezone);
 
     const record = await db.attendance.create({
@@ -93,9 +118,9 @@ const attendanceService = {
 
     emitToAdmins("attendance:checkin", {
       userId,
-      userName:   record.user.name,
+      userName: record.user.name,
       department: record.user.department,
-      checkIn:    record.checkIn,
+      checkIn: record.checkIn,
       isLate,
       lateMinutes,
     });
@@ -104,27 +129,27 @@ const attendanceService = {
   },
 
   async checkOut(userId, { timezone, notes }) {
-    const today  = this.todayDate(timezone);
-    const cfg    = await this.getConfig();
+    const today = this.todayDate(timezone);
+    const cfg = await this.getConfig();
     const record = await db.attendance.findUnique({
       where: { userId_date: { userId, date: today } },
     });
-    if (!record)         throw new ApiError("No check-in found for today", 404);
+    if (!record) throw new ApiError("No check-in found for today", 404);
     if (record.checkOut) throw new ApiError("Already checked out", 409, "DUPLICATE_CHECKOUT");
 
-    const now         = new Date();
+    const now = new Date();
     const hoursWorked = (now.getTime() - record.checkIn.getTime()) / 3_600_000;
-    const isHalfDay   = hoursWorked < toFloat(cfg.halfDayHours);
+    const isHalfDay = hoursWorked < toFloat(cfg.halfDayHours);
 
     const updated = await db.attendance.update({
       where: { userId_date: { userId, date: today } },
-      data:  {
-        checkOut:    now,
-        checkOutTz:  timezone,
+      data: {
+        checkOut: now,
+        checkOutTz: timezone,
         hoursWorked: Math.round(hoursWorked * 100) / 100,
         isHalfDay,
-        status:      isHalfDay ? "HALF_DAY" : "PRESENT",
-        notes:       notes ?? record.notes,
+        status: isHalfDay ? "HALF_DAY" : "PRESENT",
+        notes: notes ?? record.notes,
       },
     });
 
@@ -148,9 +173,9 @@ const attendanceService = {
   async getTodayRecord(userId) {
     // Most recent record for this user — open or closed
     const recent = await db.attendance.findFirst({
-      where:   { userId },
+      where: { userId },
       orderBy: { checkIn: "desc" },
-      select:  { checkInTz: true, date: true },
+      select: { checkInTz: true, date: true },
     });
 
     if (recent?.checkInTz) {
@@ -162,7 +187,7 @@ const attendanceService = {
 
     // No attendance history — fall back to stored user timezone
     const user = await db.user.findUnique({
-      where:  { id: userId },
+      where: { id: userId },
       select: { timezone: true },
     });
     const today = this.todayDate(user?.timezone || "UTC");
@@ -174,13 +199,13 @@ const attendanceService = {
   async recordManual({ userId, date, checkInTime, checkOutTime, timezone, notes }) {
     const cfg = await this.getConfig();
     const employee = await db.user.findFirst({
-      where:  { id: userId, role: "EMPLOYEE", isActive: true },
+      where: { id: userId, role: "EMPLOYEE", isActive: true },
       select: { id: true },
     });
     if (!employee) throw new ApiError("Employee not found", 404);
 
     const workDate = workDateFromString(date);
-    const checkIn  = zonedDateTimeToUtc(date, checkInTime, timezone);
+    const checkIn = zonedDateTimeToUtc(date, checkInTime, timezone);
     const checkOut = checkOutTime ? zonedDateTimeToUtc(date, checkOutTime, timezone) : null;
     if (checkOut && checkOut <= checkIn) {
       throw new ApiError("Check out must be after check in", 422, "INVALID_CHECKOUT_TIME");
@@ -193,7 +218,7 @@ const attendanceService = {
     const isHalfDay = hoursWorked != null && hoursWorked < toFloat(cfg.halfDayHours);
 
     return db.attendance.upsert({
-      where:  { userId_date: { userId, date: workDate } },
+      where: { userId_date: { userId, date: workDate } },
       update: {
         checkIn, checkOut, checkInTz: timezone,
         checkOutTz: checkOut ? timezone : null,
@@ -216,12 +241,12 @@ const attendanceService = {
   async list({ userId, date, month, status, page = 1, limit = 50 }) {
     const where = {};
     if (userId) where.userId = userId;
-    if (date)   where.date   = new Date(date);
+    if (date) where.date = new Date(date);
     if (month) {
       const [y, m] = month.split("-").map(Number);
-      where.date   = { gte: new Date(y, m - 1, 1), lt: new Date(y, m, 1) };
+      where.date = { gte: new Date(y, m - 1, 1), lt: new Date(y, m, 1) };
     }
-    if (status === "late")    where.isLate    = true;
+    if (status === "late") where.isLate = true;
     if (status === "halfday") where.isHalfDay = true;
 
     const [records, total] = await Promise.all([
@@ -229,8 +254,8 @@ const attendanceService = {
         where,
         include: { user: { select: { id: true, name: true, department: true, designation: true } } },
         orderBy: [{ date: "desc" }, { checkIn: "desc" }],
-        skip:    (page - 1) * limit,
-        take:    limit,
+        skip: (page - 1) * limit,
+        take: limit,
       }),
       db.attendance.count({ where }),
     ]);
@@ -247,8 +272,8 @@ const attendanceService = {
   // status="PRESENT".  The status now derives from the computed isHalfDay,
   // matching the same logic used in checkOut() and recordManual().
   async autoCheckoutOverdue() {
-    const cfg    = await this.getConfig();
-    const now    = new Date();
+    const cfg = await this.getConfig();
+    const now = new Date();
     const cutoff = new Date(now.getTime() - cfg.autoCheckoutHours * 3_600_000);
 
     const overdue = await db.attendance.findMany({
@@ -257,28 +282,28 @@ const attendanceService = {
 
     let count = 0;
     for (const rec of overdue) {
-      const tz      = rec.checkInTz || "UTC";
-      const today   = this.todayDate(tz);
+      const tz = rec.checkInTz || "UTC";
+      const today = this.todayDate(tz);
       const recDate = rec.date instanceof Date ? rec.date : new Date(rec.date);
 
       // Only auto-checkout records whose stored date equals today in their TZ
       if (recDate.getTime() !== today.getTime()) continue;
 
-      const checkOut    = new Date(rec.checkIn.getTime() + cfg.autoCheckoutHours * 3_600_000);
+      const checkOut = new Date(rec.checkIn.getTime() + cfg.autoCheckoutHours * 3_600_000);
       const hoursWorked = cfg.autoCheckoutHours;
-      const isHalfDay   = toFloat(hoursWorked) < toFloat(cfg.halfDayHours);
+      const isHalfDay = toFloat(hoursWorked) < toFloat(cfg.halfDayHours);
 
       await db.attendance
         .update({
           where: { id: rec.id },
-          data:  {
+          data: {
             checkOut,
-            checkOutTz:    tz,
+            checkOutTz: tz,
             hoursWorked,
             autoCheckedOut: true,
             isHalfDay,
             // FIX: derive status from isHalfDay instead of hardcoding "PRESENT"
-            status:        isHalfDay ? "HALF_DAY" : "PRESENT",
+            status: isHalfDay ? "HALF_DAY" : "PRESENT",
           },
         })
         .catch(e => console.error(`[autoCheckout] Failed to update record ${rec.id}:`, e.message));
@@ -289,9 +314,9 @@ const attendanceService = {
 
   async monthlySummary(year, month) {
     const start = new Date(year, month - 1, 1);
-    const end   = new Date(year, month, 1);
-    const recs  = await db.attendance.findMany({
-      where:   { date: { gte: start, lt: end } },
+    const end = new Date(year, month, 1);
+    const recs = await db.attendance.findMany({
+      where: { date: { gte: start, lt: end } },
       include: { user: { select: { id: true, name: true, department: true } } },
     });
 
@@ -301,7 +326,7 @@ const attendanceService = {
         byUser[r.userId] = { ...r.user, present: 0, late: 0, halfDay: 0, totalHours: 0 };
       }
       byUser[r.userId].present++;
-      if (r.isLate)    byUser[r.userId].late++;
+      if (r.isLate) byUser[r.userId].late++;
       if (r.isHalfDay) byUser[r.userId].halfDay++;
       byUser[r.userId].totalHours += toFloat(r.hoursWorked);
     }
@@ -309,7 +334,7 @@ const attendanceService = {
     return Object.values(byUser).map(e => ({
       ...e,
       totalHours: Math.round(e.totalHours * 10) / 10,
-      avgHours:   e.present ? Math.round((e.totalHours / e.present) * 10) / 10 : 0,
+      avgHours: e.present ? Math.round((e.totalHours / e.present) * 10) / 10 : 0,
     }));
   },
 };

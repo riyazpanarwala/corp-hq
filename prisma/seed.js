@@ -5,7 +5,7 @@ const bcrypt = require("bcryptjs");
 const db = new PrismaClient();
 
 function addHours(date, h) { return new Date(date.getTime() + h * 3_600_000); }
-function isWeekend(d)       { return d.getDay() === 0 || d.getDay() === 6; }
+function isWeekend(d) { return d.getDay() === 0 || d.getDay() === 6; }
 function workDayAgo(n) {
   const d = new Date();
   d.setDate(d.getDate() - n);
@@ -29,10 +29,10 @@ async function main() {
   });
 
   const employeeRows = [
-    { email: "marcus@corp.io",  name: "Marcus Webb",  department: "Engineering", designation: "Senior Developer",  timezone: "America/Los_Angeles" },
-    { email: "priya@corp.io",   name: "Priya Sharma", department: "Design",      designation: "UI/UX Designer",    timezone: "Asia/Kolkata"        },
-    { email: "jordan@corp.io",  name: "Jordan Lee",   department: "Marketing",   designation: "Marketing Lead",    timezone: "America/Chicago"     },
-    { email: "aiden@corp.io",   name: "Aiden Park",   department: "Engineering", designation: "Backend Engineer",  timezone: "America/New_York"    },
+    { email: "marcus@corp.io", name: "Marcus Webb", department: "Engineering", designation: "Senior Developer", timezone: "America/Los_Angeles" },
+    { email: "priya@corp.io", name: "Priya Sharma", department: "Design", designation: "UI/UX Designer", timezone: "Asia/Kolkata" },
+    { email: "jordan@corp.io", name: "Jordan Lee", department: "Marketing", designation: "Marketing Lead", timezone: "America/Chicago" },
+    { email: "aiden@corp.io", name: "Aiden Park", department: "Engineering", designation: "Backend Engineer", timezone: "America/New_York" },
   ];
 
   const employees = await Promise.all(
@@ -51,24 +51,27 @@ async function main() {
       if (isWeekend(date)) continue;
       if (Math.random() < 0.06) continue;
 
-      const rand    = Math.random();
+      const rand = Math.random();
       const lateMin = rand > 0.75 ? 31 + Math.floor(Math.random() * 45) : Math.floor(Math.random() * 22);
-      const isLate  = lateMin >= 30;
+      const isLate = lateMin >= 30;
       const checkIn = new Date(date);
       checkIn.setHours(9, lateMin, Math.floor(Math.random() * 60), 0);
-      const hours     = rand < 0.08 ? 3.5 + Math.random() : 7.5 + Math.random() * 2;
+      const hours = rand < 0.08 ? 3.5 + Math.random() : 7.5 + Math.random() * 2;
       const isHalfDay = hours < 4.5;
-      const checkOut  = addHours(checkIn, hours);
+      const checkOut = addHours(checkIn, hours);
 
       try {
         await db.attendance.upsert({
-          where:  { userId_date: { userId: emp.id, date } },
+          where: { userId_date: { userId: emp.id, date } },
           update: {},
           create: {
             userId: emp.id, date, checkIn, checkOut,
             checkInTz: emp.timezone, checkOutTz: emp.timezone,
             hoursWorked: Math.round(hours * 100) / 100,
-            isLate, lateMinutes: isLate ? lateMin - 30 : 0, isHalfDay,
+            // FIX: lateMinutes now mirrors attendanceService.computeLate(), which
+            // measures minutes past the actual 09:00 work start (not minutes past
+            // the 09:30 grace threshold), so seeded demo data matches live check-ins.
+            isLate, lateMinutes: isLate ? lateMin : 0, isHalfDay,
             status: isHalfDay ? "HALF_DAY" : "PRESENT",
           },
         });
@@ -78,13 +81,13 @@ async function main() {
   }
 
   const seeds = [
-    { userId: employees[0].id, type: "CL", startDate: new Date("2026-04-21"), endDate: new Date("2026-04-22"), days: 2, reason: "Personal errands.",  status: "PENDING"  },
+    { userId: employees[0].id, type: "CL", startDate: new Date("2026-04-21"), endDate: new Date("2026-04-22"), days: 2, reason: "Personal errands.", status: "PENDING" },
     { userId: employees[1].id, type: "SL", startDate: new Date("2026-04-10"), endDate: new Date("2026-04-10"), days: 1, reason: "Fever and body ache.", status: "APPROVED", reviewedById: admin.id, reviewedAt: new Date("2026-04-09"), reviewNote: "Approved. Get well soon!" },
-    { userId: employees[2].id, type: "PL", startDate: new Date("2026-04-28"), endDate: new Date("2026-05-02"), days: 5, reason: "Family vacation.",    status: "PENDING"  },
+    { userId: employees[2].id, type: "PL", startDate: new Date("2026-04-28"), endDate: new Date("2026-05-02"), days: 5, reason: "Family vacation.", status: "PENDING" },
     { userId: employees[3].id, type: "CL", startDate: new Date("2026-04-05"), endDate: new Date("2026-04-05"), days: 1, reason: "Doctor appointment.", status: "REJECTED", reviewedById: admin.id, reviewedAt: new Date("2026-04-04"), reviewNote: "Critical sprint week." },
   ];
   for (const s of seeds) {
-    await db.leaveRequest.create({ data: s }).catch(() => {});
+    await db.leaveRequest.create({ data: s }).catch(() => { });
   }
   await db.leaveBalance.update({ where: { userId: employees[1].id }, data: { slUsed: { increment: 1 } } });
 
