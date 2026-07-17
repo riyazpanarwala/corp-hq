@@ -23,17 +23,45 @@ const holidayService = {
         return holidays.map(h => ({ ...h, date: toDateStr(h.date) }));
     },
 
+    // FIX (CodeRabbit #9 — department typos silently create orphan holidays):
+    // department is now checked against actual active employee departments
+    // server-side. A holiday scoped to "Enginering" (typo) previously saved
+    // successfully and just never matched anyone in the dashboard's
+    // isHolidayForEmp() equality check.
+    //
+    // FIX (CodeRabbit #9 — race condition): the findFirst() duplicate check
+    // is not atomic. A partial unique index (see new migration) now backs
+    // this at the DB level; the create() unique-violation is caught and
+    // mapped to the same 409 the findFirst() check already returns.
     async create({ date, name, description, department }) {
         const dateOnly = toDateOnly(date);
+
+        if (department) {
+            const deptExists = await db.user.findFirst({
+                where: { department, isActive: true },
+                select: { id: true },
+            });
+            if (!deptExists) {
+                throw new ApiError(`Unknown department "${department}"`, 422, "UNKNOWN_DEPARTMENT");
+            }
+        }
+
         const existing = await db.holiday.findFirst({
             where: { date: dateOnly, department: department || null },
         });
         if (existing) throw new ApiError("A holiday already exists on this date for this scope", 409);
 
-        const holiday = await db.holiday.create({
-            data: { date: dateOnly, name, description, department: department || null },
-        });
-        return { ...holiday, date: toDateStr(holiday.date) };
+        try {
+            const holiday = await db.holiday.create({
+                data: { date: dateOnly, name, description, department: department || null },
+            });
+            return { ...holiday, date: toDateStr(holiday.date) };
+        } catch (err) {
+            if (err.code === "P2002") {
+                throw new ApiError("A holiday already exists on this date for this scope", 409);
+            }
+            throw err;
+        }
     },
 
     async remove(id) {
@@ -42,10 +70,6 @@ const holidayService = {
         await db.holiday.delete({ where: { id } });
     },
 
-    // Returns a Set of "YYYY-MM-DD" holiday dates within [startStr, endStr]
-    // (inclusive) that are scoped to "all departments" (department: null) or
-    // the given department. Single query, reused by both the range-subtract
-    // logic in apply() and the explicit-date-rejection logic in recordPast().
     async getHolidayDateSet(startStr, endStr, department) {
         const rows = await db.holiday.findMany({
             where: {
@@ -57,15 +81,24 @@ const holidayService = {
         return new Set(rows.map(r => toDateStr(r.date)));
     },
 
-    // Counts holiday dates within the range that fall on what would otherwise
-    // be a working day (weekday, or the month's one working Saturday). Used by
-    // leaveService so leave balance isn't double-charged for a day that's
-    // already a public holiday.
     async countWorkingHolidaysInRange(startStr, endStr, department) {
         const dateSet = await this.getHolidayDateSet(startStr, endStr, department);
         let count = 0;
         for (const d of dateSet) if (isWorkingDay(d)) count++;
         return count;
+    },
+
+    // FIX (CodeRabbit #9 — free-text department input): powers the new
+    // department <select> on the Admin Holidays page so admins pick from
+    // real departments instead of typing them.
+    async listDepartments() {
+        const rows = await db.user.findMany({
+            where: { isActive: true, department: { not: null } },
+            select: { department: true },
+            distinct: ["department"],
+            orderBy: { department: "asc" },
+        });
+        return rows.map(r => r.department).filter(Boolean);
     },
 };
 

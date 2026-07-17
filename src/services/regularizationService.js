@@ -15,15 +15,30 @@ const regularizationService = {
             throw new ApiError("A pending regularization request already exists for this date", 409, "DUPLICATE_REQUEST");
         }
 
-        const req = await db.attendanceRegularization.create({
-            data: {
-                userId, date: workDate,
-                requestedCheckIn: checkInTime,
-                requestedCheckOut: checkOutTime || null,
-                timezone, reason, status: "PENDING",
-            },
-            include: { employee: { select: { id: true, name: true, department: true } } },
-        });
+        // FIX (CodeRabbit #9 — race condition): the findFirst() check above is
+        // not atomic — two concurrent requests can both pass it before either
+        // insert commits. A partial unique index
+        // (attendance_regularizations_user_date_pending_key, see the new
+        // migration) now enforces this at the DB level. Catch the resulting
+        // unique-constraint violation (Postgres 23505 → Prisma P2002) and map
+        // it back to the same 409 the findFirst() check already returns.
+        let req;
+        try {
+            req = await db.attendanceRegularization.create({
+                data: {
+                    userId, date: workDate,
+                    requestedCheckIn: checkInTime,
+                    requestedCheckOut: checkOutTime || null,
+                    timezone, reason, status: "PENDING",
+                },
+                include: { employee: { select: { id: true, name: true, department: true } } },
+            });
+        } catch (err) {
+            if (err.code === "P2002") {
+                throw new ApiError("A pending regularization request already exists for this date", 409, "DUPLICATE_REQUEST");
+            }
+            throw err;
+        }
 
         emitToAdmins("regularization:requested", {
             requestId: req.id, userId, userName: req.employee.name,
@@ -38,7 +53,6 @@ const regularizationService = {
         if (!req) throw new ApiError("Request not found", 404);
         if (req.userId !== userId) throw new ApiError("Unauthorized", 403);
 
-        // Atomic conditional update — mirrors leaveService.cancel()'s race-safe pattern.
         const result = await db.attendanceRegularization.updateMany({
             where: { id, status: "PENDING" },
             data: { status: "REJECTED", reviewNote: "Cancelled by employee", reviewedAt: new Date() },
@@ -46,9 +60,16 @@ const regularizationService = {
         if (result.count === 0) throw new ApiError("Only pending requests can be cancelled", 409);
     },
 
-    // Same atomic-guard pattern as leaveService.review(): the status flip via
-    // updateMany(WHERE status="PENDING") is the first write, so two concurrent
-    // reviews of the same request can't both succeed.
+    // FIX (CodeRabbit #9 — non-atomic approval, CRITICAL): previously the
+    // status flip (updateMany) committed on its own, then recordManual() ran
+    // afterward outside any transaction. If recordManual() threw, the request
+    // was left permanently "APPROVED" with no attendance correction applied,
+    // and a retry would fail with "already reviewed" since the status was
+    // already flipped. Both writes are now inside one $transaction — if
+    // recordManual() fails, the status flip rolls back too, so the request
+    // stays PENDING and can be retried. recordManual() is passed the
+    // transaction's Prisma client (tx) so its upsert participates in the
+    // same transaction instead of using the module-level `db`.
     async review(id, adminId, { action, reviewNote }) {
         const req = await db.attendanceRegularization.findUnique({
             where: { id },
@@ -58,29 +79,29 @@ const regularizationService = {
 
         const newStatus = action === "APPROVED" ? "APPROVED" : "REJECTED";
 
-        const result = await db.attendanceRegularization.updateMany({
-            where: { id, status: "PENDING" },
-            data: { status: newStatus, reviewedById: adminId, reviewedAt: new Date(), reviewNote: reviewNote || null },
-        });
-        if (result.count === 0) throw new ApiError("This request has already been reviewed", 409);
-
-        // Only touch attendance once the status flip has succeeded. Reuses
-        // attendanceService.recordManual() — the exact same code path an admin's
-        // own "Add Time" entry uses — so isLate / hoursWorked / isHalfDay are
-        // computed identically instead of being reimplemented here.
-        if (action === "APPROVED") {
-            const dateStr = req.date.toISOString().split("T")[0];
-            await attendanceService.recordManual({
-                userId: req.userId,
-                date: dateStr,
-                checkInTime: req.requestedCheckIn,
-                checkOutTime: req.requestedCheckOut || "",
-                timezone: req.timezone,
-                notes: `Regularized: ${req.reason}`,
+        const updated = await db.$transaction(async (tx) => {
+            const result = await tx.attendanceRegularization.updateMany({
+                where: { id, status: "PENDING" },
+                data: { status: newStatus, reviewedById: adminId, reviewedAt: new Date(), reviewNote: reviewNote || null },
             });
-        }
+            if (result.count === 0) {
+                throw new ApiError("This request has already been reviewed", 409);
+            }
 
-        const updated = await db.attendanceRegularization.findUnique({ where: { id } });
+            if (action === "APPROVED") {
+                const dateStr = req.date.toISOString().split("T")[0];
+                await attendanceService.recordManual({
+                    userId: req.userId,
+                    date: dateStr,
+                    checkInTime: req.requestedCheckIn,
+                    checkOutTime: req.requestedCheckOut || "",
+                    timezone: req.timezone,
+                    notes: `Regularized: ${req.reason}`,
+                }, tx);
+            }
+
+            return tx.attendanceRegularization.findUnique({ where: { id } });
+        }, { maxWait: 10_000, timeout: 30_000 });
 
         emitToUser(req.userId, "regularization:reviewed", {
             requestId: id, status: newStatus, reviewNote: reviewNote || null,

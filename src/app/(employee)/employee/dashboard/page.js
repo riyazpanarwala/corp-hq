@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAuthContext } from "@/components/providers/AuthProvider";
 import { Card, StatCard, Badge, Table, SectionHeader, LiveClock, Btn, Skeleton } from "@/components/ui";
-import { formatTime, formatDate, formatHours, resolveAttStatus, LEAVE_CONFIG } from "@/lib/utils";
+import { formatTime, formatDate, formatHours, resolveAttStatus, LEAVE_CONFIG, todayStr } from "@/lib/utils";
 
 export default function EmployeeDashboardPage() {
   const { user, authFetch, socketOn } = useAuthContext();
@@ -30,29 +30,38 @@ export default function EmployeeDashboardPage() {
   const fetchAll = useCallback(async () => {
     try {
       const yearNow = new Date().getFullYear();
-      const [todayRes, monthRes, balRes, lvRes, holRes, holNextRes] = await Promise.all([
+      // FIX (CodeRabbit #9 — same issue as admin dashboard): the two holiday
+      // fetches are isolated from the core data (today's record, month
+      // attendance, balance, leaves) so a holiday-service failure doesn't
+      // blank the whole dashboard.
+      const [todayRes, monthRes, balRes, lvRes] = await Promise.all([
         authFetch("/api/attendance/today"),
         authFetch(`/api/attendance?month=${month}&limit=60`),
         authFetch("/api/leaves/balance"),
         authFetch("/api/leaves?limit=5"),
-        authFetch(`/api/holidays?year=${yearNow}`),
-        authFetch(`/api/holidays?year=${yearNow + 1}`),
       ]);
-      const [today, monthData, balData, lvData, holData, holNextData] = await Promise.all([
-        todayRes.json(), monthRes.json(), balRes.json(), lvRes.json(), holRes.json(), holNextRes.json(),
+      const [today, monthData, balData, lvData] = await Promise.all([
+        todayRes.json(), monthRes.json(), balRes.json(), lvRes.json(),
       ]);
       setTodayRec(today.record ?? null);
       setMonthAtt(monthData.records || []);
       setBalance(balData.balance);
       setMyLeaves(lvData.leaves || []);
 
-      // Combine current + next year so holidays right at year-end still show
-      // up, filter to future dates scoped to "all departments" or the
-      // employee's own department, and keep the next 3.
-      const todayStr = new Date().toISOString().split("T")[0];
+      const [holData, holNextData] = await Promise.all([
+        authFetch(`/api/holidays?year=${yearNow}`).then(r => r.json()).catch(() => ({ holidays: [] })),
+        authFetch(`/api/holidays?year=${yearNow + 1}`).then(r => r.json()).catch(() => ({ holidays: [] })),
+      ]);
+
+      // FIX (CodeRabbit #9 — local-date correctness): reuses the shared
+      // todayStr() util (local Y/M/D components) instead of
+      // new Date().toISOString().split("T")[0], which is always UTC and can
+      // be off by a day for employees west of UTC in the evening or east of
+      // UTC just after midnight.
+      const localToday = todayStr();
       const allHolidays = [...(holData.holidays || []), ...(holNextData.holidays || [])];
       const upcoming = allHolidays
-        .filter(h => h.date >= todayStr && (!h.department || h.department === user?.department))
+        .filter(h => h.date >= localToday && (!h.department || h.department === user?.department))
         .sort((a, b) => a.date.localeCompare(b.date))
         .slice(0, 3);
       setUpcomingHolidays(upcoming);
@@ -140,8 +149,18 @@ export default function EmployeeDashboardPage() {
     return Math.max(0, (balance[`${k}Total`] || 0) - (balance[`${k}Used`] || 0) - (balance[`${k}Pending`] || 0));
   };
 
+  // FIX (CodeRabbit #9 — DST-unsafe day diff): previously subtracted local
+  // midnight timestamps and divided by a fixed 86_400_000ms. Across a
+  // daylight-saving transition, local midnights can be 23 or 25 hours apart,
+  // so "Tomorrow" could render as "In 2 days" (or occasionally "Today" twice).
+  // Now compares UTC date ordinals built from the Y/M/D components directly,
+  // which are immune to DST since they never touch wall-clock time.
   const daysUntil = (dateStr) => {
-    const diff = Math.ceil((new Date(`${dateStr}T00:00:00`) - new Date(new Date().toDateString())) / 86_400_000);
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const target = Date.UTC(y, m - 1, d);
+    const now = new Date();
+    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    const diff = Math.round((target - today) / 86_400_000);
     if (diff === 0) return "Today";
     if (diff === 1) return "Tomorrow";
     return `In ${diff} days`;

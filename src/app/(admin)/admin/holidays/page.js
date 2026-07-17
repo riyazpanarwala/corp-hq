@@ -10,6 +10,7 @@ const EMPTY_FORM = { date: "", name: "", description: "", department: "" };
 export default function AdminHolidaysPage() {
     const { authFetch } = useAuthContext();
     const [holidays, setHolidays] = useState([]);
+    const [departments, setDepartments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [year, setYear] = useState(new Date().getFullYear());
     const [showAdd, setShowAdd] = useState(false);
@@ -20,15 +21,38 @@ export default function AdminHolidaysPage() {
     const [removing, setRemoving] = useState(false);
     const { toasts, toast, remove } = useToast();
 
+    // FIX (CodeRabbit #9 — failed fetch left the page loading forever):
+    // previously there was no try/catch/finally, so a network error left
+    // setLoading(true) in place permanently with no error shown.
     const fetchHolidays = useCallback(async () => {
         setLoading(true);
-        const res = await authFetch(`/api/holidays?year=${year}`);
-        const data = await res.json();
-        setHolidays(data.holidays || []);
-        setLoading(false);
-    }, [authFetch, year]);
+        try {
+            const res = await authFetch(`/api/holidays?year=${year}`);
+            const data = await res.json();
+            setHolidays(data.holidays || []);
+        } catch (err) {
+            toast("Could not load holidays. Please try again.", "error");
+        } finally {
+            setLoading(false);
+        }
+    }, [authFetch, year, toast]);
+
+    // FIX (CodeRabbit #9 — free-text department field): departments are now
+    // fetched from real employee records and used to populate a <select>,
+    // so a typo can no longer create a holiday that silently applies to
+    // nobody.
+    const fetchDepartments = useCallback(async () => {
+        try {
+            const res = await authFetch("/api/departments");
+            const data = await res.json();
+            setDepartments(data.departments || []);
+        } catch {
+            // Non-fatal — the department select just falls back to "All departments" only.
+        }
+    }, [authFetch]);
 
     useEffect(() => { fetchHolidays(); }, [fetchHolidays]);
+    useEffect(() => { fetchDepartments(); }, [fetchDepartments]);
 
     const setField = (key, value) => {
         setForm(prev => ({ ...prev, [key]: value }));
@@ -65,7 +89,13 @@ export default function AdminHolidaysPage() {
             if (!res.ok) throw new Error(data?.error || "Could not add holiday.");
             await fetchHolidays();
             toast(`${form.name} added to the calendar.`, "success");
-            closeAdd();
+            // FIX (CodeRabbit #9 — modal stayed open after success): calling
+            // closeAdd() here is guarded by `if (saving) return`, and saving
+            // is still true at this point (setSaving(false) hasn't run yet).
+            // Close and reset directly instead of going through the
+            // saving-guarded helper.
+            setShowAdd(false);
+            setForm(EMPTY_FORM);
         } catch (err) {
             setFormError(err.message || "Could not add holiday.");
         } finally {
@@ -133,8 +163,11 @@ export default function AdminHolidaysPage() {
                         <Field label="Holiday name">
                             <input value={form.name} onChange={e => setField("name", e.target.value)} placeholder="Independence Day" />
                         </Field>
-                        <Field label="Department" hint="Leave blank to apply to all departments">
-                            <input value={form.department} onChange={e => setField("department", e.target.value)} placeholder="e.g. Engineering" />
+                        <Field label="Department" hint="Leave as 'All departments' for a company-wide holiday">
+                            <select value={form.department} onChange={e => setField("department", e.target.value)}>
+                                <option value="">All departments</option>
+                                {departments.map(d => <option key={d} value={d}>{d}</option>)}
+                            </select>
                         </Field>
                         <Field label="Notes (optional)">
                             <textarea rows={2} value={form.description} onChange={e => setField("description", e.target.value)} style={{ resize: "vertical" }} />

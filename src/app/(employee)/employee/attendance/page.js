@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAuthContext } from "@/components/providers/AuthProvider";
 import { Card, StatCard, Badge, Table, SectionHeader, LiveClock, Btn, Skeleton, Modal, Field } from "@/components/ui";
-import { formatTime, formatDate, formatHours, resolveAttStatus } from "@/lib/utils";
+import { formatTime, formatDate, formatHours, resolveAttStatus, todayStr } from "@/lib/utils";
 
 export default function EmployeeAttendancePage() {
   const { authFetch, socketOn } = useAuthContext();
@@ -28,9 +28,14 @@ export default function EmployeeAttendancePage() {
     setTimeout(() => setToast(null), 3500);
   };
 
+  // FIX (CodeRabbit #9 — UTC vs local date): previously used
+  // new Date().toISOString().split("T")[0], which is always UTC and can be
+  // a day off from the employee's actual local date. Now uses the shared
+  // todayStr() util (local Y/M/D components), the same helper already used
+  // elsewhere (e.g. admin attendance page's default filter date).
   function defaultRegForm() {
     return {
-      date: new Date().toISOString().split("T")[0],
+      date: todayStr(),
       checkInTime: "09:30",
       checkOutTime: "18:30",
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
@@ -128,7 +133,11 @@ export default function EmployeeAttendancePage() {
       if (!res.ok) throw new Error(data?.error || "Could not submit request.");
       await fetchRegRequests();
       showToast("Correction request submitted — awaiting admin review.", "success");
-      closeRegModal();
+      // FIX (CodeRabbit #9 — modal stayed open after success): closeRegModal()
+      // is guarded by `if (regSaving) return`, and regSaving is still true
+      // here (setRegSaving(false) hasn't run yet). Close and reset directly.
+      setShowRegModal(false);
+      setRegForm(defaultRegForm());
     } catch (err) {
       setRegError(err.message || "Could not submit request.");
     } finally {
@@ -147,6 +156,12 @@ export default function EmployeeAttendancePage() {
         const json = await res.json();
         showToast(json.error || "Failed to cancel request.", "error");
       }
+    } catch (err) {
+      // FIX (CodeRabbit #9 — missing catch): a rejected authFetch (network
+      // failure, thrown "Session expired") previously propagated as an
+      // unhandled rejection with no feedback to the employee. Now surfaces
+      // the same error toast the non-OK response path already uses.
+      showToast(err.message || "Failed to cancel request.", "error");
     } finally {
       setCancellingId(null);
     }
@@ -198,7 +213,6 @@ export default function EmployeeAttendancePage() {
         }
       />
 
-      {/* Check-in widget (compact) */}
       <Card style={{ background: "linear-gradient(135deg,rgba(79,142,247,.06),rgba(124,92,252,.06))", border: "1px solid rgba(79,142,247,.18)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
           <div style={{ fontFamily: "Syne, sans-serif", fontSize: 18, fontWeight: 800 }}>
@@ -222,7 +236,6 @@ export default function EmployeeAttendancePage() {
         {isIn && <Btn onClick={handleCheckOut} loading={checking} variant="danger" size="md" style={{ width: "100%", justifyContent: "center" }}>🚪 Check Out</Btn>}
       </Card>
 
-      {/* Month stats */}
       <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 14 }}>
         <StatCard icon="✅" label="On Time" value={records.filter(r => !r.isLate && !r.isHalfDay).length} color="var(--success)" />
         <StatCard icon="⚠️" label="Late" value={records.filter(r => r.isLate).length} color="var(--warning)" />
@@ -256,7 +269,7 @@ export default function EmployeeAttendancePage() {
         <Modal title="Request Attendance Correction" onClose={closeRegModal} width={480}>
           <form onSubmit={submitRegularization} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <Field label="Date">
-              <input type="date" value={regForm.date} max={new Date().toISOString().split("T")[0]}
+              <input type="date" value={regForm.date} max={todayStr()}
                 onChange={e => setRegField("date", e.target.value)} />
             </Field>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>

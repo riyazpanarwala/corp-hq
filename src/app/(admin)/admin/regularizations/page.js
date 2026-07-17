@@ -18,17 +18,26 @@ export default function AdminRegularizationsPage() {
 
     const fetchRequests = useCallback(async () => {
         setLoading(true);
-        const [tabRes, pendRes, appRes, rejRes] = await Promise.all([
-            authFetch(`/api/attendance/regularize?status=${tab}&limit=50`),
-            authFetch("/api/attendance/regularize?status=PENDING&limit=1"),
-            authFetch("/api/attendance/regularize?status=APPROVED&limit=1"),
-            authFetch("/api/attendance/regularize?status=REJECTED&limit=1"),
-        ]);
-        const [tabData, p, a, r] = await Promise.all([tabRes.json(), pendRes.json(), appRes.json(), rejRes.json()]);
-        setRequests(tabData.requests || []);
-        setCounts({ PENDING: p.pagination?.total || 0, APPROVED: a.pagination?.total || 0, REJECTED: r.pagination?.total || 0 });
-        setLoading(false);
-    }, [tab, authFetch]);
+        try {
+            const [tabRes, pendRes, appRes, rejRes] = await Promise.all([
+                authFetch(`/api/attendance/regularize?status=${tab}&limit=50`),
+                authFetch("/api/attendance/regularize?status=PENDING&limit=1"),
+                authFetch("/api/attendance/regularize?status=APPROVED&limit=1"),
+                authFetch("/api/attendance/regularize?status=REJECTED&limit=1"),
+            ]);
+            const [tabData, p, a, r] = await Promise.all([tabRes.json(), pendRes.json(), appRes.json(), rejRes.json()]);
+            setRequests(tabData.requests || []);
+            setCounts({ PENDING: p.pagination?.total || 0, APPROVED: a.pagination?.total || 0, REJECTED: r.pagination?.total || 0 });
+        } catch (err) {
+            // FIX (CodeRabbit #9 — failed fetch left the page loading forever):
+            // no catch/finally previously — a network failure on any of the
+            // four parallel requests left setLoading(true) in place with no
+            // feedback to the admin.
+            toast("Could not load regularization requests.", "error");
+        } finally {
+            setLoading(false);
+        }
+    }, [tab, authFetch, toast]);
 
     useEffect(() => { fetchRequests(); }, [fetchRequests]);
 

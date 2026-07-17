@@ -19,20 +19,32 @@ export default function AdminDashboardPage() {
   const fetchAll = useCallback(async () => {
     try {
       const yearNow = new Date().getFullYear();
-      const [usersRes, todayRes, actRes, pendingRes, holRes] = await Promise.all([
+      // FIX (CodeRabbit #9 — optional data killed the whole dashboard):
+      // holidays are supplementary (used only for the "On Holiday" stat and
+      // the holiday banner). Previously all 5 requests were in one
+      // Promise.all — if the holidays fetch failed (network blip, transient
+      // 500), the .catch() below never ran on the individual request, so
+      // users/attendance/activity/pending all silently failed to render too.
+      // The holidays fetch is now isolated with its own .catch() fallback so
+      // a holiday-service outage degrades gracefully instead of blanking the
+      // whole page.
+      const [usersRes, todayRes, actRes, pendingRes] = await Promise.all([
         authFetch("/api/users"),
         authFetch(`/api/attendance?date=${today}&limit=50`),
         authFetch(`/api/attendance?limit=10`),
         authFetch("/api/leaves?status=PENDING&limit=6"),
-        authFetch(`/api/holidays?year=${yearNow}`),
       ]);
-      const [users, todayData, actData, pendingData, holData] = await Promise.all([
-        usersRes.json(), todayRes.json(), actRes.json(), pendingRes.json(), holRes.json(),
+      const [users, todayData, actData, pendingData] = await Promise.all([
+        usersRes.json(), todayRes.json(), actRes.json(), pendingRes.json(),
       ]);
       setAllUsers((users.users || []).filter(u => u.role === "EMPLOYEE"));
       setTodayAtt(todayData.records || []);
       setActivity(actData.records || []);
       setPending(pendingData.leaves || []);
+
+      const holData = await authFetch(`/api/holidays?year=${yearNow}`)
+        .then(res => res.json())
+        .catch(() => ({ holidays: [] }));
       setHolidaysToday((holData.holidays || []).filter(h => h.date === today));
     } catch (e) { console.error(e); }
     finally { setLoading(false); }

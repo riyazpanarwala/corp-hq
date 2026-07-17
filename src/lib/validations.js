@@ -16,6 +16,21 @@ const TimezoneSchema = z.string().refine((timeZone) => {
   }
 }, "Invalid timezone");
 
+// FIX (CodeRabbit #9 — impossible calendar dates): the old inline regex
+// /^\d{4}-\d{2}-\d{2}$/ accepts "2026-02-31", which then silently rolls over
+// when passed to `new Date(...)` (e.g. becomes March 3). Holidays and
+// regularizations were storing the wrong date with no error. This shared
+// schema validates the format AND reconstructs the date via Date.UTC(),
+// confirming the year/month/day didn't roll over.
+const DateStringSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
+  .refine((s) => {
+    const [y, m, d] = s.split("-").map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+  }, "Invalid calendar date");
+
 const LoginSchema = z.object({
   email: z.string().email("Invalid email"),
   password: z.string().min(6, "Password min 6 chars"),
@@ -54,21 +69,6 @@ const AttendanceFilterSchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
-// FIX (ApplyLeaveSchema TZ): The original todayISO() used new Date().toISOString()
-// which is always UTC.  The startDate the client sends is a *local* date string
-// (YYYY-MM-DD in the user's timezone).  When an employee applies at e.g. 00:30 local
-// time (UTC-0:30), todayISO() still returns yesterday's UTC date, so the refine
-// rejects their request as "past date" even though it's today locally.
-//
-// The ApplyLeaveSchema now accepts an optional `timezone` field (the client
-// already sends one on every leave apply request via the body, but the schema
-// previously discarded it).  We resolve "today" in that timezone so the
-// comparison is always apples-to-apples.  If no timezone is provided we fall
-// back to UTC, which preserves the old behaviour for callers that don't send one.
-//
-// todayInZone(tz) re-implements the same Intl-based date-string logic used in
-// attendanceService so there is a single canonical way to resolve "today" from
-// a timezone string throughout the codebase.
 function todayInZone(timeZone) {
   try {
     const parts = new Intl.DateTimeFormat("en-US", {
@@ -80,7 +80,6 @@ function todayInZone(timeZone) {
     const v = Object.fromEntries(parts.map(p => [p.type, p.value]));
     return `${v.year}-${v.month}-${v.day}`;
   } catch {
-    // Fallback: invalid timezone → use UTC
     return new Date().toISOString().split("T")[0];
   }
 }
@@ -91,10 +90,7 @@ const ApplyLeaveSchema = z
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     reason: z.string().min(5, "Reason min 5 chars").max(500),
-    // timezone is used only for the "past date" validation; it is not stored.
     timezone: z.string().optional(),
-    // department is resolved server-side (see POST /api/leaves) and is used
-    // only to scope which holidays offset the chargeable day count; not stored.
     department: z.string().optional(),
   })
   .refine(d => d.endDate >= d.startDate, {
@@ -105,16 +101,22 @@ const ApplyLeaveSchema = z
     { message: "Cannot apply leave for past dates", path: ["startDate"] },
   );
 
+// FIX (CodeRabbit #9): date now uses the shared calendar-valid DateStringSchema
+// instead of the raw regex, so "2026-02-31" is rejected instead of silently
+// rolling over when stored.
 const CreateHolidaySchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date: DateStringSchema,
   name: z.string().min(2, "Name min 2 chars").max(150),
   description: z.string().max(500).optional(),
   department: z.string().max(100).optional(),
 });
 
+// FIX (CodeRabbit #9): date now uses DateStringSchema (see CreateHolidaySchema
+// above) for the same reason — reject impossible calendar dates instead of
+// silently normalizing them.
 const RegularizationRequestSchema = z
   .object({
-    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    date: DateStringSchema,
     checkInTime: TimeStringSchema,
     checkOutTime: TimeStringSchema.optional().or(z.literal("")),
     timezone: TimezoneSchema.default("UTC"),
@@ -128,6 +130,17 @@ const RegularizationRequestSchema = z
     message: "Cannot request regularization for a future date",
     path: ["date"],
   });
+
+// FIX (CodeRabbit #9): backs the /api/attendance/regularize GET route —
+// previously page/limit/userId were parsed with bare parseInt() and never
+// validated, so garbage query params (or an out-of-range limit) reached
+// Prisma directly.
+const RegularizationFilterSchema = z.object({
+  status: z.enum(["all", "PENDING", "APPROVED", "REJECTED"]).default("all"),
+  userId: z.coerce.number().int().positive().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
 
 const ReviewRegularizationSchema = z.object({
   action: z.enum(["APPROVED", "REJECTED"]),
@@ -173,5 +186,5 @@ module.exports = {
   LoginSchema, CheckInSchema, CheckOutSchema,
   ManualAttendanceSchema, AttendanceFilterSchema, ApplyLeaveSchema, RecordPastLeaveSchema, ReviewLeaveSchema,
   LeaveFilterSchema, CreateUserSchema, RefreshSchema,
-  CreateHolidaySchema, RegularizationRequestSchema, ReviewRegularizationSchema,
+  CreateHolidaySchema, RegularizationRequestSchema, RegularizationFilterSchema, ReviewRegularizationSchema,
 };
