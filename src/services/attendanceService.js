@@ -57,21 +57,6 @@ const attendanceService = {
     return cfg;
   },
 
-  // FIX (late-by "+0m" bug): isLate is still gated by the grace threshold
-  // (work start + lateThresholdMin, e.g. 09:00 + 30min = 09:30) — arriving at
-  // or before that instant is never late. But the previously-reported
-  // "lateMinutes" measured minutes past the *threshold* (09:30), not minutes
-  // past the *actual work start* (09:00). That meant checking in a few
-  // seconds after 09:30 correctly flagged isLate=true, but Math.floor()'d the
-  // few seconds down to 0 minutes — producing the confusing "Late  +0m" badge
-  // even though the employee was genuinely ~30 minutes late from the official
-  // start time.
-  //
-  // lateMinutes now measures minutes elapsed since the official work start
-  // time whenever isLate is true, which is the number people actually expect
-  // to see next to a "Late" badge (e.g. checking in at 09:30:05 → "+30m",
-  // not "+0m"). The isLate gate itself (relative to the grace threshold) is
-  // unchanged, so the grace period still behaves exactly as configured.
   computeLate(now, cfg, timeZone = "UTC") {
     const date = dateStringInZone(now, timeZone);
 
@@ -90,10 +75,19 @@ const attendanceService = {
       timeZone,
     );
 
-    const isLate = now > threshold;
+    // FIX: compare at minute-level granularity, not to the exact second.
+    // Previously `now > threshold` used the raw timestamp, so checking in at
+    // 09:30:07 (which the UI displays as just "09:30 AM") already counted as
+    // late — even though from the employee's perspective they checked in
+    // exactly at the grace-period cutoff. Flooring both sides to the minute
+    // means the whole 09:30 minute counts as "on time", matching what's
+    // actually shown on screen. Anything from 09:31:00 onward is late.
+    const nowMinuteFloor = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
+    const isLate = nowMinuteFloor > threshold;
     const lateMinutes = isLate
-      ? Math.floor((now.getTime() - workStart.getTime()) / 60_000)
+      ? Math.floor((nowMinuteFloor.getTime() - workStart.getTime()) / 60_000)
       : 0;
+
     return { isLate, lateMinutes };
   },
 
