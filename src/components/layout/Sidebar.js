@@ -20,8 +20,10 @@ const MOBILE_BREAKPOINT = 768;
 const ADMIN_NAV = [
   { href: "/admin/dashboard", icon: "⚡", label: "Dashboard" },
   { href: "/admin/attendance", icon: "📋", label: "Attendance" },
+  { href: "/admin/regularizations", icon: "🛠️", label: "Regularizations" },
   { href: "/admin/leaves", icon: "🗓️", label: "Leave Requests" },
   { href: "/admin/employees", icon: "👥", label: "Employees" },
+  { href: "/admin/holidays", icon: "📆", label: "Holidays" },
   { href: "/admin/reports", icon: "📊", label: "Reports" },
 ];
 

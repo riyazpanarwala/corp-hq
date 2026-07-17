@@ -196,9 +196,16 @@ const attendanceService = {
     });
   },
 
-  async recordManual({ userId, date, checkInTime, checkOutTime, timezone, notes }) {
+  // FIX (CodeRabbit #9 — atomic regularization approval): recordManual() now
+  // accepts an optional Prisma client (defaults to the module-level `db`).
+  // regularizationService.review() passes its transaction client (`tx`) here
+  // so the regularization status flip and the attendance upsert commit or
+  // roll back together. Previously the status flip committed immediately via
+  // updateMany(), and if this upsert failed afterward, the request was stuck
+  // "APPROVED" with no attendance correction and no way to retry.
+  async recordManual({ userId, date, checkInTime, checkOutTime, timezone, notes }, client = db) {
     const cfg = await this.getConfig();
-    const employee = await db.user.findFirst({
+    const employee = await client.user.findFirst({
       where: { id: userId, role: "EMPLOYEE", isActive: true },
       select: { id: true },
     });
@@ -217,7 +224,7 @@ const attendanceService = {
       : null;
     const isHalfDay = hoursWorked != null && hoursWorked < toFloat(cfg.halfDayHours);
 
-    return db.attendance.upsert({
+    return client.attendance.upsert({
       where: { userId_date: { userId, date: workDate } },
       update: {
         checkIn, checkOut, checkInTz: timezone,

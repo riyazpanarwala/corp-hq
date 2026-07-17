@@ -47,16 +47,63 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  attendance     Attendance[]
-  leaveRequests  LeaveRequest[] @relation("EmployeeLeaves")
-  reviewedLeaves LeaveRequest[] @relation("ReviewedByAdmin")
-  leaveBalance   LeaveBalance?
-  sessions       Session[]
+  attendance             Attendance[]
+  leaveRequests          LeaveRequest[]              @relation("EmployeeLeaves")
+  reviewedLeaves         LeaveRequest[]              @relation("ReviewedByAdmin")
+  leaveBalance           LeaveBalance?
+  sessions               Session[]
+  regularizations        AttendanceRegularization[]  @relation("EmployeeRegularizations")
+  reviewedRegularizations AttendanceRegularization[] @relation("ReviewedRegularizations")
 
   @@index([email])
   @@index([role])
   @@index([department])
   @@map("users")
+}
+
+model Holiday {
+  id          Int      @id @default(autoincrement())
+  date        DateTime @db.Date
+  name        String
+  description String?
+  // null = applies to every department (company-wide holiday)
+  department  String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([date])
+  @@index([department])
+  @@map("holidays")
+}
+
+enum RegularizationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model AttendanceRegularization {
+  id                Int                  @id @default(autoincrement())
+  userId            Int                  @map("user_id")
+  date              DateTime             @db.Date
+  requestedCheckIn  String               @map("requested_check_in")   // "HH:mm"
+  requestedCheckOut String?              @map("requested_check_out")  // "HH:mm"
+  timezone          String
+  reason            String
+  status            RegularizationStatus @default(PENDING)
+  reviewedById      Int?                 @map("reviewed_by_id")
+  reviewedAt        DateTime?            @map("reviewed_at")
+  reviewNote        String?              @map("review_note")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+
+  employee   User  @relation("EmployeeRegularizations", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("ReviewedRegularizations", fields: [reviewedById], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([userId, status])
+  @@map("attendance_regularizations")
 }
 
 model Session {

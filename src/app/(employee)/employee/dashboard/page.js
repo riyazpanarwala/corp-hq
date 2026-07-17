@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAuthContext } from "@/components/providers/AuthProvider";
 import { Card, StatCard, Badge, Table, SectionHeader, LiveClock, Btn, Skeleton } from "@/components/ui";
-import { formatTime, formatDate, formatHours, resolveAttStatus, LEAVE_CONFIG } from "@/lib/utils";
+import { formatTime, formatDate, formatHours, resolveAttStatus, LEAVE_CONFIG, todayStr } from "@/lib/utils";
 
 export default function EmployeeDashboardPage() {
   const { user, authFetch, socketOn } = useAuthContext();
@@ -11,6 +11,7 @@ export default function EmployeeDashboardPage() {
   const [monthAtt, setMonthAtt] = useState([]);
   const [balance, setBalance] = useState(null);
   const [myLeaves, setMyLeaves] = useState([]);
+  const [upcomingHolidays, setUpcomingHolidays] = useState([]);
   const [elapsed, setElapsed] = useState(null);
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
@@ -28,6 +29,11 @@ export default function EmployeeDashboardPage() {
 
   const fetchAll = useCallback(async () => {
     try {
+      const yearNow = new Date().getFullYear();
+      // FIX (CodeRabbit #9 — same issue as admin dashboard): the two holiday
+      // fetches are isolated from the core data (today's record, month
+      // attendance, balance, leaves) so a holiday-service failure doesn't
+      // blank the whole dashboard.
       const [todayRes, monthRes, balRes, lvRes] = await Promise.all([
         authFetch("/api/attendance/today"),
         authFetch(`/api/attendance?month=${month}&limit=60`),
@@ -41,12 +47,30 @@ export default function EmployeeDashboardPage() {
       setMonthAtt(monthData.records || []);
       setBalance(balData.balance);
       setMyLeaves(lvData.leaves || []);
+
+      const [holData, holNextData] = await Promise.all([
+        authFetch(`/api/holidays?year=${yearNow}`).then(r => r.json()).catch(() => ({ holidays: [] })),
+        authFetch(`/api/holidays?year=${yearNow + 1}`).then(r => r.json()).catch(() => ({ holidays: [] })),
+      ]);
+
+      // FIX (CodeRabbit #9 — local-date correctness): reuses the shared
+      // todayStr() util (local Y/M/D components) instead of
+      // new Date().toISOString().split("T")[0], which is always UTC and can
+      // be off by a day for employees west of UTC in the evening or east of
+      // UTC just after midnight.
+      const localToday = todayStr();
+      const allHolidays = [...(holData.holidays || []), ...(holNextData.holidays || [])];
+      const upcoming = allHolidays
+        .filter(h => h.date >= localToday && (!h.department || h.department === user?.department))
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .slice(0, 3);
+      setUpcomingHolidays(upcoming);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [authFetch, month]);
+  }, [authFetch, month, user?.department]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -125,6 +149,23 @@ export default function EmployeeDashboardPage() {
     return Math.max(0, (balance[`${k}Total`] || 0) - (balance[`${k}Used`] || 0) - (balance[`${k}Pending`] || 0));
   };
 
+  // FIX (CodeRabbit #9 — DST-unsafe day diff): previously subtracted local
+  // midnight timestamps and divided by a fixed 86_400_000ms. Across a
+  // daylight-saving transition, local midnights can be 23 or 25 hours apart,
+  // so "Tomorrow" could render as "In 2 days" (or occasionally "Today" twice).
+  // Now compares UTC date ordinals built from the Y/M/D components directly,
+  // which are immune to DST since they never touch wall-clock time.
+  const daysUntil = (dateStr) => {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const target = Date.UTC(y, m - 1, d);
+    const now = new Date();
+    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    const diff = Math.round((target - today) / 86_400_000);
+    if (diff === 0) return "Today";
+    if (diff === 1) return "Tomorrow";
+    return `In ${diff} days`;
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
       {toast && (
@@ -192,6 +233,37 @@ export default function EmployeeDashboardPage() {
         <StatCard icon="🏥" label="Sick Leave" value={avail("SL")} sub={`of ${balance?.slTotal || 10} days`} color="var(--accent2)" />
       </div>
 
+      {/* Upcoming Holidays widget */}
+      <Card>
+        <h3 style={{ fontFamily: "Syne, sans-serif", fontWeight: 700, fontSize: 15, marginBottom: 14 }}>🎉 Upcoming Holidays</h3>
+        {upcomingHolidays.length === 0 ? (
+          <p style={{ color: "var(--text3)", fontSize: 13 }}>No upcoming holidays scheduled.</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {upcomingHolidays.map(h => (
+              <div key={h.id} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "10px 14px", background: "var(--surface2)", borderRadius: "var(--radius-md)",
+              }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{h.name}</div>
+                  <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
+                    {formatDate(h.date)}{h.department ? ` · ${h.department} only` : ""}
+                  </div>
+                </div>
+                <span style={{
+                  fontSize: 11, fontWeight: 700, color: "var(--accent2)",
+                  background: "rgba(124,92,252,.12)", padding: "3px 10px", borderRadius: 999,
+                  whiteSpace: "nowrap",
+                }}>
+                  {daysUntil(h.date)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
       <Card>
         <h3 style={{ fontFamily: "Syne, sans-serif", fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Recent Attendance</h3>
         <Table
@@ -236,4 +308,3 @@ function DashSkeleton() {
     </div>
   );
 }
-

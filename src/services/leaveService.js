@@ -1,8 +1,9 @@
 // src/services/leaveService.js
-const { db }                       = require("../lib/db");
-const { ApiError }                 = require("../lib/auth");
+const { db } = require("../lib/db");
+const { ApiError } = require("../lib/auth");
 const { emitToAdmins, emitToUser } = require("../lib/socket");
 const { countWorkingDays, isWorkingDay } = require("../lib/utils");
+const { holidayService } = require("./holidayService");
 
 const COLS = {
   CL: { total: "clTotal", used: "clUsed", pending: "clPending" },
@@ -10,7 +11,6 @@ const COLS = {
   PL: { total: "plTotal", used: "plUsed", pending: "plPending" },
 };
 
-// Resolve "today" in a given timezone using Intl — same logic as validations.js
 function todayInZone(timeZone) {
   try {
     const parts = new Intl.DateTimeFormat("en-US", {
@@ -24,13 +24,25 @@ function todayInZone(timeZone) {
 }
 
 const leaveService = {
-  async apply(userId, { type, startDate, endDate, reason }) {
-    const days = countWorkingDays(startDate, endDate);
-    if (days === 0) throw new ApiError("No working days in selected range");
+  // FIX (holiday-aware leave charging): Previously `days` was purely
+  // countWorkingDays(startDate, endDate) — a public holiday inside the range
+  // was still fully charged against the employee's balance. We now subtract
+  // holiday.countWorkingHolidaysInRange() (scoped to "all departments" +
+  // the employee's own department) from the raw working-day count before
+  // doing the balance check or creating the request. If the entire range
+  // turns out to be holidays, we reject with a clear error instead of
+  // silently creating a 0-day leave request.
+  async apply(userId, { type, startDate, endDate, reason, department }) {
+    const totalWorkingDays = countWorkingDays(startDate, endDate);
+    if (totalWorkingDays === 0) throw new ApiError("No working days in selected range");
+
+    const holidayDays = await holidayService.countWorkingHolidaysInRange(startDate, endDate, department);
+    const days = totalWorkingDays - holidayDays;
+    if (days <= 0) {
+      throw new ApiError("Selected range consists entirely of holidays", 422, "ALL_HOLIDAYS");
+    }
 
     const leave = await db.$transaction(async (tx) => {
-      // Lock the balance row for the duration of this transaction to prevent
-      // concurrent requests from both passing the availability check.
       const rows = await tx.$queryRaw`
         SELECT id,
                cl_total, cl_used, cl_pending,
@@ -43,12 +55,12 @@ const leaveService = {
 
       if (!rows || rows.length === 0) throw new ApiError("Leave balance not found", 404);
 
-      const prefix    = type.toLowerCase();
-      const bal       = rows[0];
-      const dbTotal   = Number(bal[`${prefix}_total`]);
-      const dbUsed    = Number(bal[`${prefix}_used`]);
+      const prefix = type.toLowerCase();
+      const bal = rows[0];
+      const dbTotal = Number(bal[`${prefix}_total`]);
+      const dbUsed = Number(bal[`${prefix}_used`]);
       const dbPending = Number(bal[`${prefix}_pending`]);
-      const avail     = dbTotal - dbUsed - dbPending;
+      const avail = dbTotal - dbUsed - dbPending;
 
       if (days > avail) {
         throw new ApiError(
@@ -58,14 +70,14 @@ const leaveService = {
         );
       }
 
-      const start   = new Date(startDate);
-      const end     = new Date(endDate);
+      const start = new Date(startDate);
+      const end = new Date(endDate);
       const overlap = await tx.leaveRequest.findFirst({
         where: {
           userId,
-          status:    { in: ["PENDING", "APPROVED"] },
+          status: { in: ["PENDING", "APPROVED"] },
           startDate: { lte: end },
-          endDate:   { gte: start },
+          endDate: { gte: start },
         },
       });
       if (overlap) throw new ApiError("Overlapping leave request exists", 409, "OVERLAP");
@@ -77,7 +89,7 @@ const leaveService = {
 
       await tx.leaveBalance.update({
         where: { userId },
-        data:  { [COLS[type].pending]: { increment: days } },
+        data: { [COLS[type].pending]: { increment: days } },
       });
 
       return req;
@@ -103,6 +115,19 @@ const leaveService = {
     });
     if (!employee || !employee.isActive || employee.role !== "EMPLOYEE") {
       throw new ApiError("Employee not found", 404);
+    }
+
+    // FIX (holiday rejection): An admin manually recording past leave for a
+    // date that's already a company/department holiday would previously
+    // silently deduct balance for a day the employee was never expected to
+    // work. We now reject the whole request with the offending date so the
+    // admin can use the Holiday Calendar instead of a leave deduction.
+    const holidaySet = await holidayService.getHolidayDateSet(
+      sortedDates[0], sortedDates[sortedDates.length - 1], employee.department,
+    );
+    const holidayDate = sortedDates.find(date => holidaySet.has(date));
+    if (holidayDate) {
+      throw new ApiError(`${holidayDate} is a company holiday, not a working day`, 422);
     }
 
     const today = todayInZone(employee.timezone || "UTC");
@@ -187,62 +212,46 @@ const leaveService = {
     return leaves;
   },
 
-  // FIX (review race condition): Previously, leave.status was checked OUTSIDE
-  // the transaction.  Two concurrent approve/reject requests could both pass
-  // that check and then both mutate leave_balances, double-decrementing
-  // `pending` or double-incrementing `used`.
-  //
-  // New approach: use updateMany with a WHERE status="PENDING" guard as the
-  // very first write inside the transaction.  If count === 0, another request
-  // already flipped the status — we throw immediately without touching balances.
-  // This is a conditional update pattern that makes the status transition
-  // and balance mutation atomic.
   async review(leaveId, adminId, { action, reviewNote }) {
-    // Fetch metadata (type, userId, days) for balance updates — read-only,
-    // outside the transaction is fine since we gate on status inside.
     const leave = await db.leaveRequest.findUnique({
-      where:   { id: leaveId },
+      where: { id: leaveId },
       include: { employee: { select: { id: true, name: true } } },
     });
     if (!leave) throw new ApiError("Leave not found", 404);
 
-    const cols      = COLS[leave.type];
+    const cols = COLS[leave.type];
     const newStatus = action === "APPROVED" ? "APPROVED" : "REJECTED";
 
     const updated = await db.$transaction(async (tx) => {
-      // Atomic conditional update — only succeeds if status is still PENDING
       const result = await tx.leaveRequest.updateMany({
         where: { id: leaveId, status: "PENDING" },
-        data:  {
-          status:       newStatus,
+        data: {
+          status: newStatus,
           reviewedById: adminId,
-          reviewedAt:   new Date(),
-          reviewNote:   reviewNote || null,
+          reviewedAt: new Date(),
+          reviewNote: reviewNote || null,
         },
       });
 
-      // count === 0 means another request already processed this leave
       if (result.count === 0) {
         throw new ApiError("Leave has already been reviewed", 409);
       }
 
-      // Balance update only runs if the status flip succeeded
       if (action === "APPROVED") {
         await tx.leaveBalance.update({
           where: { userId: leave.userId },
-          data:  {
+          data: {
             [cols.pending]: { decrement: leave.days },
-            [cols.used]:    { increment: leave.days },
+            [cols.used]: { increment: leave.days },
           },
         });
       } else {
         await tx.leaveBalance.update({
           where: { userId: leave.userId },
-          data:  { [cols.pending]: { decrement: leave.days } },
+          data: { [cols.pending]: { decrement: leave.days } },
         });
       }
 
-      // Return the updated record for the response
       return tx.leaveRequest.findUnique({ where: { id: leaveId } });
     });
 
@@ -252,32 +261,20 @@ const leaveService = {
     return updated;
   },
 
-  // FIX (cancel race condition + timezone mismatch):
-  //
-  // 1. Race condition: same as review() — status check was outside the
-  //    transaction.  Now uses updateMany with WHERE status IN ("PENDING") as
-  //    an atomic gate before touching the balance.
-  //
-  // 2. Timezone mismatch: todayDateStr() used server-local time, while
-  //    leave.startDate.toISOString() is UTC.  Around midnight this could make
-  //    a leave non-cancellable a day early or late for employees in non-server
-  //    timezones.  We now fetch the employee's stored timezone and resolve
-  //    "today" in that zone using todayInZone() — same logic used when applying.
   async cancel(leaveId, userId) {
     const leave = await db.leaveRequest.findUnique({ where: { id: leaveId } });
-    if (!leave)                  throw new ApiError("Leave not found", 404);
+    if (!leave) throw new ApiError("Leave not found", 404);
     if (leave.userId !== userId) throw new ApiError("Unauthorized", 403);
     if (leave.status === "APPROVED")
       throw new ApiError("Cannot cancel approved leave. Contact HR.", 409);
     if (leave.status === "CANCELLED")
       throw new ApiError("Already cancelled", 409);
 
-    // Resolve "today" in the employee's own timezone to avoid midnight edge cases
     const employee = await db.user.findUnique({
-      where:  { id: userId },
+      where: { id: userId },
       select: { timezone: true },
     });
-    const today      = todayInZone(employee?.timezone || "UTC");
+    const today = todayInZone(employee?.timezone || "UTC");
     const leaveStart = leave.startDate.toISOString().split("T")[0];
 
     if (leaveStart <= today) {
@@ -291,10 +288,9 @@ const leaveService = {
     const cols = COLS[leave.type];
 
     await db.$transaction(async (tx) => {
-      // Atomic conditional update — only succeeds if status is still PENDING
       const result = await tx.leaveRequest.updateMany({
         where: { id: leaveId, status: "PENDING" },
-        data:  { status: "CANCELLED", cancelledAt: new Date() },
+        data: { status: "CANCELLED", cancelledAt: new Date() },
       });
 
       if (result.count === 0) {
@@ -303,7 +299,7 @@ const leaveService = {
 
       await tx.leaveBalance.update({
         where: { userId },
-        data:  { [cols.pending]: { decrement: leave.days } },
+        data: { [cols.pending]: { decrement: leave.days } },
       });
     });
   },
@@ -317,12 +313,12 @@ const leaveService = {
       db.leaveRequest.findMany({
         where,
         include: {
-          employee:   { select: { id: true, name: true, department: true, avatarUrl: true } },
+          employee: { select: { id: true, name: true, department: true, avatarUrl: true } },
           reviewedBy: { select: { id: true, name: true } },
         },
         orderBy: { appliedOn: "desc" },
-        skip:    (page - 1) * limit,
-        take:    limit,
+        skip: (page - 1) * limit,
+        take: limit,
       }),
       db.leaveRequest.count({ where }),
     ]);
