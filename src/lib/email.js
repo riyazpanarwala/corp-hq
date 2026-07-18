@@ -1,32 +1,22 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
-function getTransporter() {
-  const port = Number(process.env.SMTP_PORT || 587);
-
-  if (!process.env.SMTP_HOST || !process.env.SMTP_FROM) {
-    throw new Error("SMTP_HOST and SMTP_FROM must be configured");
+function getResendConfig() {
+  if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM) {
+    throw new Error("RESEND_API_KEY and RESEND_FROM must be configured");
   }
 
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port,
-    secure: process.env.SMTP_SECURE === "true" || port === 465,
-    auth: process.env.SMTP_USER
-      ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-      : undefined,
-  });
+  return {
+    client: new Resend(process.env.RESEND_API_KEY),
+    from: process.env.RESEND_FROM,
+  };
 }
 
 export async function sendPasswordResetEmail({ email, name, resetUrl }) {
-  if (process.env.NODE_ENV !== "production" && !process.env.SMTP_HOST) {
-    console.info(`[Password reset] ${email}: ${resetUrl}`);
-    return;
-  }
-
+  const { client, from } = getResendConfig();
   const safeResetUrl = escapeHtml(resetUrl);
 
-  await getTransporter().sendMail({
-    from: process.env.SMTP_FROM,
+  const { error } = await client.emails.send({
+    from,
     to: email,
     subject: "Reset your CorpHQ password",
     text: `Hi ${name},\n\nUse this link to reset your CorpHQ password:\n${resetUrl}\n\nThis link expires in 30 minutes and can only be used once. If you did not request it, you can ignore this email.`,
@@ -41,6 +31,12 @@ export async function sendPasswordResetEmail({ email, name, resetUrl }) {
       </div>
     `,
   });
+
+  if (error) {
+    const resendError = new Error("Resend rejected the password-reset email");
+    resendError.code = error.name || "RESEND_ERROR";
+    throw resendError;
+  }
 }
 
 function escapeHtml(value) {

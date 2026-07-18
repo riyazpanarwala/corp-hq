@@ -256,12 +256,8 @@ JWT_REFRESH_SECRET="..."    # 64-char hex
 JWT_ACCESS_EXPIRY="15m"
 JWT_REFRESH_EXPIRY="7d"
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
-SMTP_HOST="smtp.example.com"
-SMTP_PORT="587"
-SMTP_SECURE="false"
-SMTP_USER="..."
-SMTP_PASS="..."
-SMTP_FROM="CorpHQ <no-reply@example.com>"
+RESEND_API_KEY="re_..."
+RESEND_FROM="CorpHQ <no-reply@example.com>"
 ```
 
-In development, when `SMTP_HOST` is unset, password reset links are printed to the server console instead of being emailed.
+Resend is required in every environment so password-reset credentials are never written to logs. Verify the sender domain in Resend and set `RESEND_FROM` to an address on that domain. The `onboarding@resend.dev` sender is only suitable for Resend onboarding tests.
