@@ -50,7 +50,7 @@ function recordToForm(record) {
 }
 
 export default function AdminAttendancePage() {
-  const { authFetch, socketOn } = useAuthContext();
+  const { authFetch, socketOn, isAdmin } = useAuthContext();
   const [records, setRecords] = useState([]);
   const [users,   setUsers]   = useState([]);
   const [total,   setTotal]   = useState(0);
@@ -82,6 +82,7 @@ export default function AdminAttendancePage() {
   const fetchRecords = useCallback(async () => {
     setLoading(true);
     const p = new URLSearchParams();
+    p.set("scope", "team");
     if (filters.date)             p.set("date",   filters.date);
     if (filters.userId !== "all") p.set("userId", filters.userId);
     if (filters.status !== "all") p.set("status", filters.status);
@@ -207,7 +208,7 @@ export default function AdminAttendancePage() {
     { key: "hours",    label: "Hours",     render: r => formatHours(r.hoursWorked) },
     { key: "late",     label: "Late By",   render: r => r.isLate ? <span style={{color:"var(--warning)"}}>+{r.lateMinutes}m</span> : "-" },
     { key: "status",   label: "Status",    render: r => <Badge status={resolveAttStatus(r)} /> },
-    {
+    ...(isAdmin ? [{
       key: "edit", label: "",
       render: r => (
         <Btn
@@ -219,7 +220,7 @@ export default function AdminAttendancePage() {
           ✏️ Edit
         </Btn>
       ),
-    },
+    }] : []),
   ];
 
   return (
@@ -229,7 +230,7 @@ export default function AdminAttendancePage() {
         subtitle={`${total} records`}
         action={
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <Btn onClick={openAddForm} size="sm">+ Add Time</Btn>
+            {isAdmin && <Btn onClick={openAddForm} size="sm">+ Add Time</Btn>}
             <Btn onClick={handleExport} variant="secondary" size="sm">Export CSV</Btn>
           </div>
         }

@@ -233,9 +233,10 @@ const attendanceService = {
     });
   },
 
-  async list({ userId, date, month, status, page = 1, limit = 50 }) {
+  async list({ userId, userIds, date, month, status, page = 1, limit = 50 }) {
     const where = {};
     if (userId) where.userId = userId;
+    else if (userIds) where.userId = { in: userIds };
     if (date) where.date = new Date(date);
     if (month) {
       const [y, m] = month.split("-").map(Number);

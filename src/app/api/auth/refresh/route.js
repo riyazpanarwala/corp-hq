@@ -16,7 +16,10 @@ export async function POST() {
 
     const session = await db.session.findUnique({
       where:   { refreshToken },
-      include: { user: { select: { id: true, email: true, role: true, name: true, isActive: true } } },
+      include: { user: { select: {
+        id: true, email: true, role: true, name: true, isActive: true,
+        _count: { select: { directReports: { where: { isActive: true } } } },
+      } } },
     });
 
     if (!session || !session.user.isActive || session.expiresAt < new Date()) {
@@ -28,7 +31,8 @@ export async function POST() {
       return Response.json({ error: "Invalid or expired session" }, { status: 401 });
     }
 
-    const newAccessToken  = await signAccessToken({ sub: String(session.user.id), email: session.user.email, role: session.user.role, name: session.user.name });
+    const isManager = session.user._count.directReports > 0;
+    const newAccessToken  = await signAccessToken({ sub: String(session.user.id), email: session.user.email, role: session.user.role, name: session.user.name, isManager });
     const newRefreshToken = await signRefreshToken(session.user.id);
 
     await db.session.update({

@@ -190,6 +190,11 @@ const CreateUserSchema = z.object({
   department: z.string().min(1),
   designation: z.string().optional(),
   timezone: z.string().default("UTC"),
+  managerId: z.coerce.number().int().positive().nullable().optional(),
+});
+
+const UpdateUserHierarchySchema = z.object({
+  managerId: z.coerce.number().int().positive().nullable(),
 });
 
 const RefreshSchema = z.object({ refreshToken: z.string().min(1) });
@@ -197,6 +202,6 @@ const RefreshSchema = z.object({ refreshToken: z.string().min(1) });
 module.exports = {
   LoginSchema, ForgotPasswordSchema, ResetPasswordSchema, CheckInSchema, CheckOutSchema,
   ManualAttendanceSchema, AttendanceFilterSchema, ApplyLeaveSchema, RecordPastLeaveSchema, ReviewLeaveSchema,
-  LeaveFilterSchema, CreateUserSchema, RefreshSchema,
+  LeaveFilterSchema, CreateUserSchema, UpdateUserHierarchySchema, RefreshSchema,
   CreateHolidaySchema, RegularizationRequestSchema, RegularizationFilterSchema, ReviewRegularizationSchema,
 };

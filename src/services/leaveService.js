@@ -304,9 +304,10 @@ const leaveService = {
     });
   },
 
-  async list({ userId, status, page = 1, limit = 20 }) {
+  async list({ userId, userIds, status, page = 1, limit = 20 }) {
     const where = {};
     if (userId) where.userId = userId;
+    else if (userIds) where.userId = { in: userIds };
     if (status && status !== "all") where.status = status;
 
     const [leaves, total] = await Promise.all([

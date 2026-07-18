@@ -46,6 +46,7 @@ function userFromToken(token) {
       email: payload.email,
       name:  payload.name,
       role:  payload.role,
+      isManager: payload.isManager === true,
     };
   } catch {
     return null;
@@ -256,6 +257,7 @@ export function useAuth() {
     isHydrated,
     isLoggedIn: !!user,
     isAdmin:    user?.role === "ADMIN",
+    isManager:  user?.isManager === true,
     isEmployee: user?.role === "EMPLOYEE",
     login,
     logout:     doLogout,

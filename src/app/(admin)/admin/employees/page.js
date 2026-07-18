@@ -12,11 +12,13 @@ const EMPTY_FORM = {
   designation: "",
   timezone: "Asia/Kolkata",
   password: "",
+  managerId: "",
 };
 
 export default function AdminEmployeesPage() {
   const { authFetch } = useAuthContext();
   const [employees, setEmployees] = useState([]);
+  const [allUsers,  setAllUsers]  = useState([]);
   const [todayAtt,  setTodayAtt]  = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [search,    setSearch]    = useState("");
@@ -26,6 +28,7 @@ export default function AdminEmployeesPage() {
   const [saving,    setSaving]    = useState(false);
   const [removeEmp, setRemoveEmp] = useState(null);
   const [removing,  setRemoving]  = useState(false);
+  const [savingManagerId, setSavingManagerId] = useState(null);
   const { toasts, toast, remove } = useToast();
 
   const today = todayStr();
@@ -36,7 +39,9 @@ export default function AdminEmployeesPage() {
       authFetch(`/api/attendance?date=${today}&limit=50`),
     ]);
     const [usersData, todayData] = await Promise.all([usersRes.json(), todayRes.json()]);
-    setEmployees((usersData.users || []).filter(u => u.role === "EMPLOYEE"));
+    const activeUsers = usersData.users || [];
+    setAllUsers(activeUsers);
+    setEmployees(activeUsers.filter(u => u.role === "EMPLOYEE"));
     setTodayAtt(todayData.records || []);
     setLoading(false);
   }, [authFetch, today]);
@@ -67,6 +72,7 @@ export default function AdminEmployeesPage() {
       department: form.department.trim(),
       designation: form.designation.trim(),
       timezone: form.timezone.trim() || "UTC",
+      managerId: form.managerId ? Number(form.managerId) : null,
     };
 
     if (!payload.name || !payload.email || !payload.department || !payload.password) {
@@ -100,6 +106,24 @@ export default function AdminEmployeesPage() {
       setFormError(err.message || "Could not add employee.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const assignManager = async (employeeId, managerId) => {
+    setSavingManagerId(employeeId);
+    try {
+      const res = await authFetch(`/api/users/${employeeId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ managerId: managerId ? Number(managerId) : null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Could not update manager.");
+      await fetchAll();
+      toast("Reporting manager updated.", "success");
+    } catch (err) {
+      toast(err.message || "Could not update manager.", "error");
+    } finally {
+      setSavingManagerId(null);
     }
   };
 
@@ -184,6 +208,29 @@ export default function AdminEmployeesPage() {
                 </div>
               </div>
 
+              <div style={{ marginTop: 10 }}>
+                <label style={{ display: "block", fontSize: 10, color: "var(--text3)", marginBottom: 4 }}>
+                  Reports to
+                </label>
+                <select
+                  value={emp.managerId || ""}
+                  disabled={savingManagerId === emp.id}
+                  onChange={e => assignManager(emp.id, e.target.value)}
+                  style={{ fontSize: 12, padding: "7px 9px" }}
+                  aria-label={`Manager for ${emp.name}`}
+                >
+                  <option value="">No manager</option>
+                  {allUsers.filter(candidate => candidate.id !== emp.id).map(candidate => (
+                    <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
+                  ))}
+                </select>
+                {emp._count?.directReports > 0 && (
+                  <div style={{ fontSize: 10, color: "var(--accent)", marginTop: 4 }}>
+                    Manages {emp._count.directReports} direct report{emp._count.directReports === 1 ? "" : "s"}
+                  </div>
+                )}
+              </div>
+
               <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: 11, color: "var(--text3)" }}>{emp.timezone}</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -225,6 +272,12 @@ export default function AdminEmployeesPage() {
               </Field>
               <Field label="Timezone">
                 <input value={form.timezone} onChange={e => setField("timezone", e.target.value)} placeholder="Asia/Kolkata" />
+              </Field>
+              <Field label="Reporting manager">
+                <select value={form.managerId} onChange={e => setField("managerId", e.target.value)}>
+                  <option value="">No manager</option>
+                  {allUsers.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
+                </select>
               </Field>
               <Field label="Temporary password" hint="Minimum 8 characters.">
                 <input type="password" value={form.password} onChange={e => setField("password", e.target.value)} placeholder="password123" />

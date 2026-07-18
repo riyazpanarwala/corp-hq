@@ -9,7 +9,7 @@ const LEAVE_LABELS = { CL: "Casual Leave", SL: "Sick Leave", PL: "Paid Leave" };
 const LEAVE_EMOJI  = { CL: "🏖️", SL: "🏥", PL: "💰" };
 
 export default function AdminLeavesPage() {
-  const { authFetch, socketOn } = useAuthContext();
+  const { authFetch, socketOn, isAdmin } = useAuthContext();
   const [leaves,  setLeaves]  = useState([]);
   const [counts,  setCounts]  = useState({});
   const [tab,     setTab]     = useState("PENDING");
@@ -23,10 +23,10 @@ export default function AdminLeavesPage() {
   const fetchLeaves = useCallback(async () => {
     setLoading(true);
     const [tabRes, pendRes, appRes, rejRes] = await Promise.all([
-      authFetch(`/api/leaves?status=${tab}&limit=50`),
-      authFetch("/api/leaves?status=PENDING&limit=1"),
-      authFetch("/api/leaves?status=APPROVED&limit=1"),
-      authFetch("/api/leaves?status=REJECTED&limit=1"),
+      authFetch(`/api/leaves?scope=team&status=${tab}&limit=50`),
+      authFetch("/api/leaves?scope=team&status=PENDING&limit=1"),
+      authFetch("/api/leaves?scope=team&status=APPROVED&limit=1"),
+      authFetch("/api/leaves?scope=team&status=REJECTED&limit=1"),
     ]);
     const [tabData, p, a, r] = await Promise.all([tabRes.json(), pendRes.json(), appRes.json(), rejRes.json()]);
     setLeaves(tabData.leaves || []);
@@ -130,7 +130,7 @@ export default function AdminLeavesPage() {
       <SectionHeader
         title="Leave Requests"
         subtitle="Review and manage employee leaves"
-        action={<Btn onClick={() => setRecordModal(true)}>+ Record Past Leave</Btn>}
+        action={isAdmin ? <Btn onClick={() => setRecordModal(true)}>+ Record Past Leave</Btn> : null}
       />
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
       <Card>
@@ -194,7 +194,7 @@ export default function AdminLeavesPage() {
         </Modal>
       )}
 
-      {recordModal && (
+      {isAdmin && recordModal && (
         <RecordPastLeaveModal
           authFetch={authFetch}
           onClose={() => setRecordModal(false)}
