@@ -3,7 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   // serverExternalPackages was introduced in Next.js 15 (moved from
   // experimental.serverComponentsExternalPackages) and remains valid in Next 16.
-  serverExternalPackages: ["bcryptjs", "@prisma/client"],
+  serverExternalPackages: ["bcryptjs", "@prisma/client", "resend"],
   async headers() {
     return [
       {

@@ -2,6 +2,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuthContext } from "@/components/providers/AuthProvider";
 import { Btn, Spinner } from "@/components/ui";
 
@@ -90,7 +91,10 @@ export default function LoginPage() {
             <input type="email" value={email} autoComplete="email" onChange={e => setEmail(e.target.value)} placeholder="you@corp.io" style={inputSt} />
           </div>
           <div>
-            <label style={labelSt}>Password</label>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <label style={{ ...labelSt, marginBottom: 0 }}>Password</label>
+              <Link href="/forgot-password" style={{ color: "var(--accent)", fontSize: 13, textDecoration: "none", fontWeight: 600 }}>Forgot password?</Link>
+            </div>
             <input type="password" value={password} autoComplete="current-password" onChange={e => setPassword(e.target.value)} placeholder="••••••••" style={inputSt} />
           </div>
           {error && (

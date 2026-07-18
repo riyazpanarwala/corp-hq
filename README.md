@@ -214,6 +214,8 @@ git commit -m "feat: add phone field to users"
 POST   /api/auth/login              { email, password }
 POST   /api/auth/refresh            { refreshToken }
 POST   /api/auth/logout             { refreshToken }
+POST   /api/auth/forgot-password    { email }
+POST   /api/auth/reset-password     { token, password }
 
 GET    /api/attendance              ?date=&month=&userId=&status=&page=&limit=
 POST   /api/attendance              { timezone }            → check in
@@ -254,4 +256,8 @@ JWT_REFRESH_SECRET="..."    # 64-char hex
 JWT_ACCESS_EXPIRY="15m"
 JWT_REFRESH_EXPIRY="7d"
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
+RESEND_API_KEY="re_..."
+RESEND_FROM="CorpHQ <no-reply@example.com>"
 ```
+
+Resend is required in every environment so password-reset credentials are never written to logs. Verify the sender domain in Resend and set `RESEND_FROM` to an address on that domain. The `onboarding@resend.dev` sender is only suitable for Resend onboarding tests.

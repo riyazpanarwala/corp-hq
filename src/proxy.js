@@ -10,7 +10,11 @@ const ACCESS_SECRET = new TextEncoder().encode(process.env.JWT_ACCESS_SECRET);
 const PUBLIC_PATHS = new Set([
   "/api/auth/login",
   "/api/auth/refresh",
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password",
   "/login",
+  "/forgot-password",
+  "/reset-password",
   "/manifest.webmanifest",
   "/icon.svg",
   "/robots.txt",

@@ -53,7 +53,7 @@ async function main() {
 
       const rand = Math.random();
       const lateMin = rand > 0.75 ? 31 + Math.floor(Math.random() * 45) : Math.floor(Math.random() * 22);
-      const isLate = lateMin >= 30;
+      const isLate = lateMin > 30;
       const checkIn = new Date(date);
       checkIn.setHours(9, lateMin, Math.floor(Math.random() * 60), 0);
       const hours = rand < 0.08 ? 3.5 + Math.random() : 7.5 + Math.random() * 2;
@@ -68,10 +68,9 @@ async function main() {
             userId: emp.id, date, checkIn, checkOut,
             checkInTz: emp.timezone, checkOutTz: emp.timezone,
             hoursWorked: Math.round(hours * 100) / 100,
-            // FIX: lateMinutes now mirrors attendanceService.computeLate(), which
-            // measures minutes past the actual 09:00 work start (not minutes past
-            // the 09:30 grace threshold), so seeded demo data matches live check-ins.
-            isLate, lateMinutes: isLate ? lateMin : 0, isHalfDay,
+            // Mirror attendanceService.computeLate(): lateness starts after the
+            // 09:30 grace-period cutoff (09:31 = 1 minute late).
+            isLate, lateMinutes: isLate ? lateMin - 30 : 0, isHalfDay,
             status: isHalfDay ? "HALF_DAY" : "PRESENT",
           },
         });

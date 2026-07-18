@@ -36,6 +36,18 @@ const LoginSchema = z.object({
   password: z.string().min(6, "Password min 6 chars"),
 });
 
+const ForgotPasswordSchema = z.object({
+  email: z.string().email("Enter a valid email address"),
+});
+
+const ResetPasswordSchema = z.object({
+  token: z.string().regex(/^[a-f0-9]{64}$/i, "Invalid reset link"),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(128, "Password must be at most 128 characters"),
+});
+
 const CheckInSchema = z.object({
   timezone: TimezoneSchema.default("UTC"),
   notes: z.string().max(500).optional(),
@@ -183,7 +195,7 @@ const CreateUserSchema = z.object({
 const RefreshSchema = z.object({ refreshToken: z.string().min(1) });
 
 module.exports = {
-  LoginSchema, CheckInSchema, CheckOutSchema,
+  LoginSchema, ForgotPasswordSchema, ResetPasswordSchema, CheckInSchema, CheckOutSchema,
   ManualAttendanceSchema, AttendanceFilterSchema, ApplyLeaveSchema, RecordPastLeaveSchema, ReviewLeaveSchema,
   LeaveFilterSchema, CreateUserSchema, RefreshSchema,
   CreateHolidaySchema, RegularizationRequestSchema, RegularizationFilterSchema, ReviewRegularizationSchema,

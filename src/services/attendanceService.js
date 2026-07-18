@@ -60,12 +60,6 @@ const attendanceService = {
   computeLate(now, cfg, timeZone = "UTC") {
     const date = dateStringInZone(now, timeZone);
 
-    const workStart = zonedDateTimeToUtc(
-      date,
-      `${String(cfg.workStartHour).padStart(2, "0")}:${String(cfg.workStartMinute).padStart(2, "0")}`,
-      timeZone,
-    );
-
     const thresholdMinutes = cfg.workStartMinute + cfg.lateThresholdMin;
     const thresholdHour = cfg.workStartHour + Math.floor(thresholdMinutes / 60);
     const thresholdMinute = thresholdMinutes % 60;
@@ -85,7 +79,7 @@ const attendanceService = {
     const nowMinuteFloor = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
     const isLate = nowMinuteFloor > threshold;
     const lateMinutes = isLate
-      ? Math.floor((nowMinuteFloor.getTime() - workStart.getTime()) / 60_000)
+      ? Math.floor((nowMinuteFloor.getTime() - threshold.getTime()) / 60_000)
       : 0;
 
     return { isLate, lateMinutes };
