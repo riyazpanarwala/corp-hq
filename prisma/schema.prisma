@@ -44,6 +44,7 @@ model User {
   avatarUrl    String?  @map("avatar_url")
   timezone     String   @default("UTC")
   isActive     Boolean  @default(true) @map("is_active")
+  managerId    Int?     @map("manager_id")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -55,10 +56,13 @@ model User {
   passwordResetTokens    PasswordResetToken[]
   regularizations        AttendanceRegularization[]  @relation("EmployeeRegularizations")
   reviewedRegularizations AttendanceRegularization[] @relation("ReviewedRegularizations")
+  manager                User?                        @relation("ManagementHierarchy", fields: [managerId], references: [id], onDelete: SetNull)
+  directReports          User[]                       @relation("ManagementHierarchy")
 
   @@index([email])
   @@index([role])
   @@index([department])
+  @@index([managerId])
   @@map("users")
 }
 

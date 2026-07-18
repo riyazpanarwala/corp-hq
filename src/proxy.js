@@ -20,7 +20,8 @@ const PUBLIC_PATHS = new Set([
   "/robots.txt",
   "/sitemap.xml",
 ]);
-const ADMIN_PATHS  = ["/api/users", "/api/reports", "/admin"];
+const ADMIN_PATHS = ["/api/reports", "/admin"];
+const MANAGER_PATHS = ["/api/users", "/admin/attendance", "/admin/leaves"];
 const API_RE       = /^\/api\//;
 
 // Paths where appending ?from=... is not useful (root redirect, index pages)
@@ -58,7 +59,9 @@ export async function proxy(request) {
       throw new Error("Invalid user ID in token");
     }
 
-    if (ADMIN_PATHS.some(p => pathname.startsWith(p)) && payload.role !== "ADMIN") {
+    const adminOnly = ADMIN_PATHS.some(p => pathname.startsWith(p));
+    const managerAllowed = MANAGER_PATHS.some(p => pathname.startsWith(p));
+    if (payload.role !== "ADMIN" && adminOnly && !(payload.isManager && managerAllowed)) {
       if (API_RE.test(pathname)) {
         return NextResponse.json({ error: "Admin access required" }, { status: 403 });
       }
@@ -70,6 +73,7 @@ export async function proxy(request) {
     headers.set("x-user-role",  payload.role);
     headers.set("x-user-email", payload.email);
     headers.set("x-user-name",  payload.name);
+    headers.set("x-user-is-manager", String(payload.isManager === true));
 
     return NextResponse.next({ request: { headers } });
   } catch {

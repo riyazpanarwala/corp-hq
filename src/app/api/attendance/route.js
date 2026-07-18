@@ -1,5 +1,5 @@
 // src/app/api/attendance/route.js
-import { getCurrentUser, handleApiError, ApiError } from "@/lib/auth";
+import { getCurrentUser, getDirectReportIds, assertDirectReport, handleApiError, ApiError } from "@/lib/auth";
 import { attendanceService }                        from "@/services/attendanceService";
 import { AttendanceFilterSchema, CheckInSchema, ManualAttendanceSchema } from "@/lib/validations";
 
@@ -9,7 +9,12 @@ export async function GET(request) {
     const user   = getCurrentUser(request);
     const params = Object.fromEntries(new URL(request.url).searchParams);
     const filters = AttendanceFilterSchema.parse(params);
-    if (user.role === "EMPLOYEE") filters.userId = user.id;
+    if (user.isManager && params.scope === "team") {
+      if (filters.userId) await assertDirectReport(user.id, filters.userId);
+      else filters.userIds = await getDirectReportIds(user.id);
+    } else if (user.role === "EMPLOYEE") {
+      filters.userId = user.id;
+    }
     const result = await attendanceService.list(filters);
     return Response.json(result);
   } catch (err) {

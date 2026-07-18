@@ -33,10 +33,16 @@ const EMPLOYEE_NAV = [
   { href: "/employee/leaves", icon: "🗓️", label: "My Leaves" },
 ];
 
+const MANAGER_NAV = [
+  ...EMPLOYEE_NAV,
+  { href: "/admin/attendance", icon: "👥", label: "Team Attendance" },
+  { href: "/admin/leaves", icon: "✅", label: "Team Leaves" },
+];
+
 const COLORS = ["#4f8ef7", "#7c5cfc", "#22d3a5", "#f5a623", "#f04444"];
 
 export function Sidebar() {
-  const { user, logout, isAdmin } = useAuthContext();
+  const { user, logout, isAdmin, isManager } = useAuthContext();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -73,7 +79,7 @@ export function Sidebar() {
 
   if (!user) return null;
 
-  const nav = isAdmin ? ADMIN_NAV : EMPLOYEE_NAV;
+  const nav = isAdmin ? ADMIN_NAV : isManager ? MANAGER_NAV : EMPLOYEE_NAV;
   const initials = user.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
   const color = COLORS[user.id % COLORS.length];
 
@@ -159,7 +165,7 @@ export function Sidebar() {
               background: isAdmin ? "var(--accent-glow)" : "rgba(34,211,165,.1)",
               padding: "3px 8px", borderRadius: 6,
             }}>
-              {isAdmin ? "Admin · HR" : user.department}
+              {isAdmin ? "Admin · HR" : isManager ? "Manager · Team" : user.department}
             </span>
           </div>
         )}

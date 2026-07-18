@@ -7,14 +7,14 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { Spinner } from "@/components/ui";
 
 function AdminGuard({ children }) {
-  const { isHydrated, isLoggedIn, isAdmin } = useAuthContext();
+  const { isHydrated, isLoggedIn, isAdmin, isManager } = useAuthContext();
   const router = useRouter();
 
   useEffect(() => {
     if (!isHydrated) return;
     if (!isLoggedIn) { router.replace("/login"); return; }
-    if (!isAdmin) { router.replace("/employee/dashboard"); }
-  }, [isHydrated, isLoggedIn, isAdmin, router]);
+    if (!isAdmin && !isManager) { router.replace("/employee/dashboard"); }
+  }, [isHydrated, isLoggedIn, isAdmin, isManager, router]);
 
   if (!isHydrated) {
     return (
@@ -24,7 +24,7 @@ function AdminGuard({ children }) {
     );
   }
 
-  if (!isLoggedIn || !isAdmin) return null;
+  if (!isLoggedIn || (!isAdmin && !isManager)) return null;
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>

@@ -1,5 +1,5 @@
 // src/app/api/leaves/route.js
-import { getCurrentUser, handleApiError } from "@/lib/auth";
+import { getCurrentUser, getDirectReportIds, assertDirectReport, handleApiError } from "@/lib/auth";
 import { leaveService } from "@/services/leaveService";
 import { ApplyLeaveSchema, LeaveFilterSchema } from "@/lib/validations";
 import { db } from "@/lib/db";
@@ -10,7 +10,12 @@ export async function GET(request) {
     const user = getCurrentUser(request);
     const params = Object.fromEntries(new URL(request.url).searchParams);
     const filters = LeaveFilterSchema.parse(params);
-    if (user.role === "EMPLOYEE") filters.userId = user.id;
+    if (user.isManager && params.scope === "team") {
+      if (filters.userId) await assertDirectReport(user.id, filters.userId);
+      else filters.userIds = await getDirectReportIds(user.id);
+    } else if (user.role === "EMPLOYEE") {
+      filters.userId = user.id;
+    }
     const result = await leaveService.list(filters);
     return Response.json(result);
   } catch (err) {

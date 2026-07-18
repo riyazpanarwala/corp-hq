@@ -1,5 +1,6 @@
 // src/app/api/leaves/[id]/route.js
-import { getCurrentUser, handleApiError, ApiError } from "@/lib/auth";
+import { getCurrentUser, assertDirectReport, handleApiError, ApiError } from "@/lib/auth";
+import { db }                                           from "@/lib/db";
 import { leaveService }                             from "@/services/leaveService";
 import { ReviewLeaveSchema }                        from "@/lib/validations";
 
@@ -7,9 +8,17 @@ import { ReviewLeaveSchema }                        from "@/lib/validations";
 export async function PATCH(request, { params }) {
   try {
     const user = getCurrentUser(request);
-    if (user.role !== "ADMIN") throw new ApiError("Admin access required", 403);
+    if (user.role !== "ADMIN" && !user.isManager) throw new ApiError("Manager access required", 403);
+    const { id: rawId } = await params;
+    const id = Number(rawId);
+    if (!Number.isInteger(id) || id <= 0) throw new ApiError("Invalid leave ID", 422);
+    if (user.role !== "ADMIN") {
+      const leave = await db.leaveRequest.findUnique({ where: { id }, select: { userId: true } });
+      if (!leave) throw new ApiError("Leave not found", 404);
+      await assertDirectReport(user.id, leave.userId);
+    }
     const body    = ReviewLeaveSchema.parse(await request.json());
-    const updated = await leaveService.review(parseInt(params.id), user.id, body);
+    const updated = await leaveService.review(id, user.id, body);
     return Response.json(updated);
   } catch (err) {
     if (err?.errors) return Response.json({ error: err.errors[0].message }, { status: 422 });

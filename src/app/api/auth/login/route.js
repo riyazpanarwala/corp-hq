@@ -58,6 +58,7 @@ export async function POST(request) {
         id: true, email: true, name: true, role: true,
         department: true, designation: true, timezone: true,
         avatarUrl: true, passwordHash: true,
+        _count: { select: { directReports: { where: { isActive: true } } } },
       },
     });
 
@@ -95,9 +96,11 @@ export async function POST(request) {
     // failures against every account behind the same address.
     reset(credentialKey);
 
-    const { passwordHash, ...safeUser } = user;
+    const { passwordHash, _count, ...userFields } = user;
+    const isManager = _count.directReports > 0;
+    const safeUser = { ...userFields, isManager };
 
-    const accessToken  = await signAccessToken({ sub: String(user.id), email: user.email, role: user.role, name: user.name });
+    const accessToken  = await signAccessToken({ sub: String(user.id), email: user.email, role: user.role, name: user.name, isManager });
     const refreshToken = await signRefreshToken(user.id);
 
     await db.session.create({

@@ -61,9 +61,28 @@ function getCurrentUser(request) {
   return {
     id,
     role:  request.headers.get("x-user-role"),
+    isManager: request.headers.get("x-user-is-manager") === "true",
     email: request.headers.get("x-user-email"),
     name:  request.headers.get("x-user-name"),
   };
+}
+
+async function getDirectReportIds(managerId) {
+  const { db } = require("./db");
+  const reports = await db.user.findMany({
+    where: { managerId, isActive: true },
+    select: { id: true },
+  });
+  return reports.map(report => report.id);
+}
+
+async function assertDirectReport(managerId, employeeId) {
+  const { db } = require("./db");
+  const report = await db.user.findFirst({
+    where: { id: employeeId, managerId, isActive: true },
+    select: { id: true },
+  });
+  if (!report) throw new ApiError("Employee is outside your team", 403);
 }
 
 // ── Refresh token expiry (7 days from now) ────────────────────
@@ -97,5 +116,6 @@ module.exports = {
   signAccessToken, signRefreshToken,
   verifyAccessToken, verifyRefreshToken,
   extractBearerToken, getCurrentUser,
+  getDirectReportIds, assertDirectReport,
   refreshTokenExpiry, ApiError, handleApiError,
 };

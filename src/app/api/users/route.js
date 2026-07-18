@@ -7,10 +7,17 @@ import bcrypt from "bcryptjs";
 export async function GET(request) {
   try {
     const user = getCurrentUser(request);
-    if (user.role !== "ADMIN") throw new ApiError("Forbidden", 403);
+    if (user.role !== "ADMIN" && !user.isManager) throw new ApiError("Forbidden", 403);
     const users = await db.user.findMany({
-      where:   { isActive: true },
-      select:  { id: true, email: true, name: true, role: true, department: true, designation: true, timezone: true, createdAt: true },
+      where: user.role === "ADMIN"
+        ? { isActive: true }
+        : { isActive: true, managerId: user.id },
+      select:  {
+        id: true, email: true, name: true, role: true, department: true,
+        designation: true, timezone: true, managerId: true, createdAt: true,
+        manager: { select: { id: true, name: true } },
+        _count: { select: { directReports: { where: { isActive: true } } } },
+      },
       orderBy: { name: "asc" },
     });
     return Response.json({ users });
@@ -24,10 +31,17 @@ export async function POST(request) {
     const user = getCurrentUser(request);
     if (user.role !== "ADMIN") throw new ApiError("Forbidden", 403);
     const body         = CreateUserSchema.parse(await request.json());
+    if (body.managerId) {
+      const manager = await db.user.findFirst({
+        where: { id: body.managerId, isActive: true },
+        select: { id: true },
+      });
+      if (!manager) throw new ApiError("Manager not found", 422);
+    }
     const passwordHash = await bcrypt.hash(body.password, 12);
     const { password, ...rest } = body;
     const newUser = await db.$transaction(async (tx) => {
-      const u = await tx.user.create({ data: { ...rest, passwordHash }, select: { id: true, email: true, name: true, role: true, department: true } });
+      const u = await tx.user.create({ data: { ...rest, passwordHash }, select: { id: true, email: true, name: true, role: true, department: true, managerId: true } });
       await tx.leaveBalance.create({ data: { userId: u.id, year: new Date().getFullYear() } });
       return u;
     });
