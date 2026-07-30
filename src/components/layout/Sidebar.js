@@ -115,7 +115,7 @@ export function Sidebar() {
           justifyContent: effectiveCollapsed ? "center" : "space-between",
           minHeight: 64,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1, overflow: "hidden" }}>
             <div style={{
               width: 34, height: 34, borderRadius: 10, flexShrink: 0,
               background: "linear-gradient(135deg,var(--accent),var(--accent2))",
@@ -123,9 +123,14 @@ export function Sidebar() {
               fontSize: 16, boxShadow: "var(--shadow-accent)",
             }}>🏢</div>
             {!effectiveCollapsed && (
-              <span style={{ fontFamily: "Syne, sans-serif", fontWeight: 800, fontSize: 15, whiteSpace: "nowrap" }}>
-                Panarwala CorpHQ
-              </span>
+              <div style={{ minWidth: 0, flex: 1, overflow: "hidden" }}>
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--accent)", display: "block", lineHeight: 1, marginBottom: 2 }}>
+                  PANARWALA
+                </span>
+                <span style={{ fontFamily: "Syne, sans-serif", fontWeight: 800, fontSize: 16, lineHeight: 1.1, display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  CorpHQ
+                </span>
+              </div>
             )}
           </div>
           {!effectiveCollapsed && !isMobile && <CollapseBtn icon="◀" onClick={() => setCollapsed(true)} />}
