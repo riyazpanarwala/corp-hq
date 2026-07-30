@@ -41,7 +41,10 @@ export default function ResetPasswordForm({ token }) {
       <section style={cardSt}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 30 }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,var(--accent),var(--accent2))", display: "grid", placeItems: "center", boxShadow: "var(--shadow-accent)" }}>🏢</div>
-          <span style={{ fontFamily: "Syne, sans-serif", fontWeight: 800, fontSize: 20 }}>CorpHQ</span>
+          <div>
+            <span style={{ fontFamily: "Syne, sans-serif", fontWeight: 800, fontSize: 20, display: "block", lineHeight: 1.1 }}>Panarwala CorpHQ</span>
+            <span style={{ fontSize: 12, color: "var(--text3)", fontWeight: 500 }}>by Panarwala</span>
+          </div>
         </div>
         <h1 style={{ fontFamily: "Syne, sans-serif", fontSize: 26, fontWeight: 800, lineHeight: 1.15 }}>{success ? "Password reset" : "Choose a new password"}</h1>
         <p style={{ color: "var(--text2)", fontSize: 14, lineHeight: 1.6, marginTop: 8, marginBottom: 26 }}>

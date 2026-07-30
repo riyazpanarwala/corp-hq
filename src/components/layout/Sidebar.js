@@ -6,15 +6,6 @@ import { useState, useEffect } from "react";
 import { Avatar } from "@/components/ui";
 import { useAuthContext } from "@/components/providers/AuthProvider";
 
-// FIX (mobile sidebar): the sidebar previously had no concept of a mobile
-// viewport at all — it was a fixed-width flex item that always occupied
-// horizontal space, so on small screens it either squeezed the content or
-// overflowed the page, and there was no way to "close" it.
-//
-// Below MOBILE_BREAKPOINT the sidebar now renders as an off-canvas drawer
-// (position: fixed, transformed off-screen) that starts CLOSED on page load
-// and is toggled via a small hamburger button + backdrop, instead of the
-// desktop icon-rail "collapsed" mode.
 const MOBILE_BREAKPOINT = 768;
 
 const ADMIN_NAV = [
@@ -48,9 +39,6 @@ export function Sidebar() {
   const [isMobile, setIsMobile] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Detect the mobile breakpoint and force the drawer closed whenever we're
-  // on (or transition into) a mobile viewport — this is what guarantees the
-  // sidebar is closed on initial page load on phones/small tablets.
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`);
 
@@ -63,7 +51,7 @@ export function Sidebar() {
 
     const handler = (e) => applyState(e.matches);
     if (mq.addEventListener) mq.addEventListener("change", handler);
-    else mq.addListener(handler); // Safari <14 fallback
+    else mq.addListener(handler);
 
     return () => {
       if (mq.removeEventListener) mq.removeEventListener("change", handler);
@@ -71,8 +59,6 @@ export function Sidebar() {
     };
   }, []);
 
-  // Auto-close the drawer on navigation so tapping a nav link doesn't leave
-  // the overlay open on top of the newly-loaded page.
   useEffect(() => {
     if (isMobile) setMobileOpen(false);
   }, [pathname, isMobile]);
@@ -83,14 +69,11 @@ export function Sidebar() {
   const initials = user.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
   const color = COLORS[user.id % COLORS.length];
 
-  // On mobile the drawer is always full width when open — the icon-rail
-  // "collapsed" mode is a desktop-only concept.
   const effectiveCollapsed = isMobile ? false : collapsed;
   const W = isMobile ? 240 : (collapsed ? 64 : 220);
 
   return (
     <>
-      {/* Hamburger trigger — hidden on desktop via the media query at the bottom */}
       <button
         className="sidebar-mobile-trigger"
         onClick={() => setMobileOpen(o => !o)}
@@ -107,7 +90,6 @@ export function Sidebar() {
         {mobileOpen ? "✕" : "☰"}
       </button>
 
-      {/* Backdrop — tap outside the drawer to close it */}
       {isMobile && mobileOpen && (
         <div
           onClick={() => setMobileOpen(false)}
@@ -141,12 +123,11 @@ export function Sidebar() {
               fontSize: 16, boxShadow: "var(--shadow-accent)",
             }}>🏢</div>
             {!effectiveCollapsed && (
-              <span style={{ fontFamily: "Syne, sans-serif", fontWeight: 800, fontSize: 17, whiteSpace: "nowrap" }}>
-                CorpHQ
+              <span style={{ fontFamily: "Syne, sans-serif", fontWeight: 800, fontSize: 15, whiteSpace: "nowrap" }}>
+                Panarwala CorpHQ
               </span>
             )}
           </div>
-          {/* Desktop: collapse to icon-rail. Mobile: close the drawer instead. */}
           {!effectiveCollapsed && !isMobile && <CollapseBtn icon="◀" onClick={() => setCollapsed(true)} />}
           {isMobile && <CollapseBtn icon="✕" onClick={() => setMobileOpen(false)} />}
         </div>
@@ -218,8 +199,6 @@ export function Sidebar() {
         </div>
       </aside>
 
-      {/* Reveal the hamburger trigger only at/below the mobile breakpoint —
-          on desktop the sidebar is always visible so no trigger is needed. */}
       <style>{`
         @media (max-width: ${MOBILE_BREAKPOINT}px) {
           .sidebar-mobile-trigger { display: flex !important; }
