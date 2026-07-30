@@ -1,9 +1,9 @@
 export default function manifest() {
   return {
-    name: "CorpHQ Employee Management Portal",
-    short_name: "CorpHQ",
+    name: "Panarwala CorpHQ Employee Management Portal",
+    short_name: "Panarwala CorpHQ",
     description:
-      "Secure employee portal for attendance tracking, leave management, and HR analytics.",
+      "Panarwala CorpHQ is a secure employee portal for attendance tracking, leave management, and HR analytics.",
     start_url: "/login",
     display: "standalone",
     background_color: "#0b0e14",

@@ -56,7 +56,10 @@ function AuthPage({ children }) {
       <section style={{ width: "100%", maxWidth: 460, padding: 36, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 30 }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,var(--accent),var(--accent2))", display: "grid", placeItems: "center", boxShadow: "var(--shadow-accent)" }}>🏢</div>
-          <span style={{ fontFamily: "Syne, sans-serif", fontWeight: 800, fontSize: 20 }}>CorpHQ</span>
+          <div>
+            <span style={{ fontFamily: "Syne, sans-serif", fontWeight: 800, fontSize: 20, display: "block", lineHeight: 1.1 }}>Panarwala CorpHQ</span>
+            <span style={{ fontSize: 12, color: "var(--text3)", fontWeight: 500 }}>by Panarwala</span>
+          </div>
         </div>
         {children}
       </section>

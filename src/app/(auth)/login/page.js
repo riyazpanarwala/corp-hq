@@ -45,9 +45,11 @@ export default function LoginPage() {
         <div style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", justifyContent: "center", padding: "40px 36px", margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 36 }}>
             <Logo size={36} />
-            <span style={{ fontFamily: "Syne, sans-serif", fontWeight: 800, fontSize: 20 }}>CorpHQ</span>
+            <div>
+              <span style={{ fontFamily: "Syne, sans-serif", fontWeight: 800, fontSize: 20, display: "block", lineHeight: 1.1 }}>Panarwala CorpHQ</span>
+            </div>
           </div>
-          <h2 style={{ fontFamily: "Syne, sans-serif", fontSize: 26, fontWeight: 800, lineHeight: 1.1 }}>Welcome back</h2>
+          <h1 style={{ fontFamily: "Syne, sans-serif", fontSize: 26, fontWeight: 800, lineHeight: 1.1 }}>Welcome back</h1>
           <p style={{ color: "var(--text2)", fontSize: 14, marginTop: 6, marginBottom: 28 }}>Sign in to your portal account.</p>
           <div style={{ height: 200 }} />
         </div>
@@ -60,11 +62,14 @@ export default function LoginPage() {
       {/* Left branding */}
       <div className="login-left" style={{ flex: 1, flexDirection: "column", justifyContent: "center", padding: "60px 64px", borderRight: "1px solid var(--border)", background: "linear-gradient(160deg,rgba(79,142,247,.04) 0%,transparent 60%)", display: "none" }}>
         <Logo size={52} />
-        <h1 style={{ fontFamily: "Syne, sans-serif", fontSize: 38, fontWeight: 800, lineHeight: 1.1, marginTop: 24 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--accent)", marginTop: 24, marginBottom: -12 }}>
+          Panarwala
+        </div>
+        <h1 style={{ fontFamily: "Syne, sans-serif", fontSize: 38, fontWeight: 800, lineHeight: 1.1, marginTop: 18 }}>
           Employee<br />Management<br />Portal
         </h1>
         <p style={{ color: "var(--text2)", fontSize: 15, marginTop: 16, maxWidth: 320, lineHeight: 1.7 }}>
-          Track attendance, manage leave requests, and monitor your team — all in one place.
+          Panarwala CorpHQ provides real-time attendance tracking, leave management, and team analytics — all in one place.
         </p>
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 36 }}>
           {["Real-time check-in / check-out", "Leave approval workflow", "Monthly analytics & CSV export", "Role-based access control"].map(f => (
@@ -79,10 +84,13 @@ export default function LoginPage() {
       <div style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", justifyContent: "center", padding: "40px 36px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 36 }}>
           <Logo size={36} />
-          <span style={{ fontFamily: "Syne, sans-serif", fontWeight: 800, fontSize: 20 }}>CorpHQ</span>
+          <div>
+            <span style={{ fontFamily: "Syne, sans-serif", fontWeight: 800, fontSize: 20, display: "block", lineHeight: 1.1 }}>Panarwala CorpHQ</span>
+            <span style={{ fontSize: 12, color: "var(--text3)", fontWeight: 500 }}>by Panarwala</span>
+          </div>
         </div>
 
-        <h2 style={{ fontFamily: "Syne, sans-serif", fontSize: 26, fontWeight: 800, lineHeight: 1.1 }}>Welcome back</h2>
+        <h1 style={{ fontFamily: "Syne, sans-serif", fontSize: 26, fontWeight: 800, lineHeight: 1.1 }}>Welcome back</h1>
         <p style={{ color: "var(--text2)", fontSize: 14, marginTop: 6, marginBottom: 28 }}>Sign in to your portal account.</p>
 
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
