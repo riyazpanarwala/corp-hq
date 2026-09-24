@@ -197,11 +197,32 @@ const UpdateUserHierarchySchema = z.object({
   managerId: z.coerce.number().int().positive().nullable(),
 });
 
+const UpdateUserPasswordSchema = z.object({
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(128, "Password must be at most 128 characters"),
+});
+
+const UpdateUserSchema = z
+  .object({
+    managerId: z.coerce.number().int().positive().nullable().optional(),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .max(128, "Password must be at most 128 characters")
+      .optional(),
+  })
+  .refine(
+    (d) => d.managerId !== undefined || d.password !== undefined,
+    { message: "At least one field to update must be provided" }
+  );
+
 const RefreshSchema = z.object({ refreshToken: z.string().min(1) });
 
 module.exports = {
   LoginSchema, ForgotPasswordSchema, ResetPasswordSchema, CheckInSchema, CheckOutSchema,
   ManualAttendanceSchema, AttendanceFilterSchema, ApplyLeaveSchema, RecordPastLeaveSchema, ReviewLeaveSchema,
-  LeaveFilterSchema, CreateUserSchema, UpdateUserHierarchySchema, RefreshSchema,
+  LeaveFilterSchema, CreateUserSchema, UpdateUserHierarchySchema, UpdateUserPasswordSchema, UpdateUserSchema, RefreshSchema,
   CreateHolidaySchema, RegularizationRequestSchema, RegularizationFilterSchema, ReviewRegularizationSchema,
 };

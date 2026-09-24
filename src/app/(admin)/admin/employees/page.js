@@ -29,6 +29,12 @@ export default function AdminEmployeesPage() {
   const [removeEmp, setRemoveEmp] = useState(null);
   const [removing,  setRemoving]  = useState(false);
   const [savingManagerId, setSavingManagerId] = useState(null);
+  const [passwordEmp, setPasswordEmp] = useState(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [updatingPassword, setUpdatingPassword] = useState(false);
   const { toasts, toast, remove } = useToast();
 
   const today = todayStr();
@@ -149,6 +155,80 @@ export default function AdminEmployeesPage() {
     }
   };
 
+  const openPasswordModal = (emp) => {
+    setPasswordEmp(emp);
+    setNewPassword("");
+    setConfirmPassword("");
+    setShowPassword(false);
+    setPasswordError("");
+  };
+
+  const closePasswordModal = () => {
+    if (updatingPassword) return;
+    setPasswordEmp(null);
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordError("");
+  };
+
+  const generatePassword = () => {
+    const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let randomStr = "";
+    for (let i = 0; i < 6; i++) {
+      randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const generated = `User@${randomStr}`;
+    setNewPassword(generated);
+    setConfirmPassword(generated);
+    setShowPassword(true);
+    setPasswordError("");
+    toast("Generated temporary password applied.", "info");
+  };
+
+  const updatePassword = async (e) => {
+    e.preventDefault();
+    setPasswordError("");
+
+    const pwd = newPassword.trim();
+    const confirmPwd = confirmPassword.trim();
+
+    if (!pwd) {
+      setPasswordError("Please enter a new password.");
+      return;
+    }
+
+    if (pwd.length < 8) {
+      setPasswordError("Password must be at least 8 characters long.");
+      return;
+    }
+
+    if (pwd !== confirmPwd) {
+      setPasswordError("Passwords do not match.");
+      return;
+    }
+
+    setUpdatingPassword(true);
+    try {
+      const res = await authFetch(`/api/users/${passwordEmp.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pwd }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error || "Could not update password.");
+      }
+
+      toast(`Password updated successfully for ${passwordEmp.name}.`, "success");
+      closePasswordModal();
+    } catch (err) {
+      setPasswordError(err.message || "Failed to update password.");
+    } finally {
+      setUpdatingPassword(false);
+    }
+  };
+
   const filtered = employees.filter(e =>
     !search ||
     e.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -231,10 +311,18 @@ export default function AdminEmployeesPage() {
                 )}
               </div>
 
-              <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                 <span style={{ fontSize: 11, color: "var(--text3)" }}>{emp.timezone}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <Badge status={emp.role.toLowerCase()} />
+                  <Btn
+                    variant="secondary"
+                    size="xs"
+                    onClick={() => openPasswordModal(emp)}
+                    title={`Set password for ${emp.name}`}
+                  >
+                    🔑 Password
+                  </Btn>
                   {/* FIX: show a spinner on the exact card being removed and
                       disable all Remove buttons while any removal is in-flight,
                       preventing multiple simultaneous delete requests. */}
@@ -242,7 +330,7 @@ export default function AdminEmployeesPage() {
                     variant="ghost"
                     size="xs"
                     loading={removeEmp?.id === emp.id && removing}
-                    disabled={removing}
+                    disabled={removing || updatingPassword}
                     onClick={() => setRemoveEmp(emp)}
                   >
                     Remove
@@ -315,6 +403,96 @@ export default function AdminEmployeesPage() {
               <Btn variant="danger" loading={removing} onClick={removeEmployee}>Remove Employee</Btn>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {passwordEmp && (
+        <Modal title={`Set Password · ${passwordEmp.name}`} onClose={closePasswordModal} width={460}>
+          <form onSubmit={updatePassword} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{
+              background: "var(--surface2)",
+              borderRadius: "var(--radius-md)",
+              padding: "12px 14px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{passwordEmp.name}</div>
+                <div style={{ fontSize: 12, color: "var(--text3)", marginTop: 2 }}>{passwordEmp.email}</div>
+              </div>
+              <Badge status={passwordEmp.department || "Employee"} />
+            </div>
+
+            <div style={{ fontSize: 12, color: "var(--text2)", lineHeight: 1.5 }}>
+              Enter a new password for this employee. Setting a password will immediately invalidate any of their existing sessions.
+            </div>
+
+            <Field label="New Password" hint="Minimum 8 characters.">
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={newPassword}
+                  onChange={e => {
+                    setNewPassword(e.target.value);
+                    if (passwordError) setPasswordError("");
+                  }}
+                  placeholder="Enter new password"
+                  autoFocus
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(s => !s)}
+                  title={showPassword ? "Hide password" : "Show password"}
+                  style={{
+                    background: "var(--surface2)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "0 10px",
+                    cursor: "pointer",
+                    fontSize: 14,
+                    color: "var(--text2)",
+                  }}
+                >
+                  {showPassword ? "🙈" : "👁️"}
+                </button>
+                <Btn
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={generatePassword}
+                  title="Generate a random password"
+                >
+                  🎲 Auto
+                </Btn>
+              </div>
+            </Field>
+
+            <Field label="Confirm New Password">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={confirmPassword}
+                onChange={e => {
+                  setConfirmPassword(e.target.value);
+                  if (passwordError) setPasswordError("");
+                }}
+                placeholder="Re-enter new password"
+              />
+            </Field>
+
+            {passwordError && (
+              <div style={{ color: "var(--danger)", fontSize: 13, fontWeight: 600 }}>
+                {passwordError}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 6 }}>
+              <Btn variant="ghost" onClick={closePasswordModal} disabled={updatingPassword}>Cancel</Btn>
+              <Btn type="submit" loading={updatingPassword}>Update Password</Btn>
+            </div>
+          </form>
         </Modal>
       )}
 
