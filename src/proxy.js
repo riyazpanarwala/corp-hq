@@ -4,6 +4,7 @@
 // only the filename changed. The old src/middleware.js can be deleted.
 import { NextResponse } from "next/server";
 import { jwtVerify }    from "jose";
+import { db }           from "@/lib/db";
 
 const ACCESS_SECRET = new TextEncoder().encode(process.env.JWT_ACCESS_SECRET);
 
@@ -59,6 +60,20 @@ export async function proxy(request) {
       throw new Error("Invalid user ID in token");
     }
 
+    // Enforce session revocation: verify active session exists
+    const sessionWhere = payload.sessionId
+      ? { id: payload.sessionId, userId, expiresAt: { gt: new Date() } }
+      : { userId, expiresAt: { gt: new Date() } };
+
+    const activeSession = await db.session.findFirst({
+      where: sessionWhere,
+      select: { id: true },
+    });
+
+    if (!activeSession) {
+      throw new Error("Session revoked or expired");
+    }
+
     const adminOnly = ADMIN_PATHS.some(p => pathname.startsWith(p));
     const managerAllowed = MANAGER_PATHS.some(p => pathname.startsWith(p));
     if (payload.role !== "ADMIN" && adminOnly && !(payload.isManager && managerAllowed)) {
@@ -84,7 +99,10 @@ export async function proxy(request) {
     if (!SKIP_FROM_PATHS.has(pathname)) {
       url.searchParams.set("expired", "true");
     }
-    return NextResponse.redirect(url);
+    const res = NextResponse.redirect(url);
+    res.cookies.delete("access_token");
+    res.cookies.delete("refresh_token");
+    return res;
   }
 }
 

@@ -155,6 +155,14 @@ export default function AdminEmployeesPage() {
     }
   };
 
+  const resetPasswordModal = () => {
+    setPasswordEmp(null);
+    setNewPassword("");
+    setConfirmPassword("");
+    setShowPassword(false);
+    setPasswordError("");
+  };
+
   const openPasswordModal = (emp) => {
     setPasswordEmp(emp);
     setNewPassword("");
@@ -165,10 +173,7 @@ export default function AdminEmployeesPage() {
 
   const closePasswordModal = () => {
     if (updatingPassword) return;
-    setPasswordEmp(null);
-    setNewPassword("");
-    setConfirmPassword("");
-    setPasswordError("");
+    resetPasswordModal();
   };
 
   const generatePassword = () => {
@@ -189,20 +194,17 @@ export default function AdminEmployeesPage() {
     e.preventDefault();
     setPasswordError("");
 
-    const pwd = newPassword.trim();
-    const confirmPwd = confirmPassword.trim();
-
-    if (!pwd) {
+    if (!newPassword) {
       setPasswordError("Please enter a new password.");
       return;
     }
 
-    if (pwd.length < 8) {
+    if (newPassword.length < 8) {
       setPasswordError("Password must be at least 8 characters long.");
       return;
     }
 
-    if (pwd !== confirmPwd) {
+    if (newPassword !== confirmPassword) {
       setPasswordError("Passwords do not match.");
       return;
     }
@@ -212,7 +214,7 @@ export default function AdminEmployeesPage() {
       const res = await authFetch(`/api/users/${passwordEmp.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: pwd }),
+        body: JSON.stringify({ password: newPassword }),
       });
       const data = await res.json();
 
@@ -221,7 +223,7 @@ export default function AdminEmployeesPage() {
       }
 
       toast(`Password updated successfully for ${passwordEmp.name}.`, "success");
-      closePasswordModal();
+      resetPasswordModal();
     } catch (err) {
       setPasswordError(err.message || "Failed to update password.");
     } finally {
@@ -433,6 +435,7 @@ export default function AdminEmployeesPage() {
               <div style={{ display: "flex", gap: 8 }}>
                 <input
                   type={showPassword ? "text" : "password"}
+                  autoComplete="new-password"
                   value={newPassword}
                   onChange={e => {
                     setNewPassword(e.target.value);
@@ -473,6 +476,7 @@ export default function AdminEmployeesPage() {
             <Field label="Confirm New Password">
               <input
                 type={showPassword ? "text" : "password"}
+                autoComplete="new-password"
                 value={confirmPassword}
                 onChange={e => {
                   setConfirmPassword(e.target.value);
