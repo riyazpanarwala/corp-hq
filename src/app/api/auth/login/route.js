@@ -100,10 +100,9 @@ export async function POST(request) {
     const isManager = _count.directReports > 0;
     const safeUser = { ...userFields, isManager };
 
-    const accessToken  = await signAccessToken({ sub: String(user.id), email: user.email, role: user.role, name: user.name, isManager });
     const refreshToken = await signRefreshToken(user.id);
 
-    await db.session.create({
+    const session = await db.session.create({
       data: {
         userId:       user.id,
         refreshToken,
@@ -111,6 +110,15 @@ export async function POST(request) {
         ipAddress:    ip,
         userAgent:    request.headers.get("user-agent") ?? undefined,
       },
+    });
+
+    const accessToken  = await signAccessToken({
+      sub: String(user.id),
+      sessionId: session.id,
+      email: user.email,
+      role: user.role,
+      name: user.name,
+      isManager,
     });
 
     const cookieStore = await cookies();

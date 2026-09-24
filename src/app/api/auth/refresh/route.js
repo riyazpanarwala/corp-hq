@@ -32,7 +32,14 @@ export async function POST() {
     }
 
     const isManager = session.user._count.directReports > 0;
-    const newAccessToken  = await signAccessToken({ sub: String(session.user.id), email: session.user.email, role: session.user.role, name: session.user.name, isManager });
+    const newAccessToken  = await signAccessToken({
+      sub: String(session.user.id),
+      sessionId: session.id,
+      email: session.user.email,
+      role: session.user.role,
+      name: session.user.name,
+      isManager,
+    });
     const newRefreshToken = await signRefreshToken(session.user.id);
 
     await db.session.update({
