@@ -23,6 +23,14 @@ const db = new PrismaClient();
 
 // ── Same TZ-aware helpers as attendanceService.js ──────────────────────────
 
+/**
+ * Converts a date string, time string, and timezone to a UTC Date object.
+ *
+ * @param {string} date - Date in YYYY-MM-DD format
+ * @param {string} time - Time in HH:mm format
+ * @param {string} timeZone - IANA timezone identifier
+ * @returns {Date} UTC Date representation
+ */
 function zonedDateTimeToUtc(date, time, timeZone) {
   const [year, month, day] = date.split("-").map(Number);
   const [hour, minute] = time.split(":").map(Number);
@@ -47,6 +55,13 @@ function zonedDateTimeToUtc(date, time, timeZone) {
   return new Date(utcGuess - offsetAt(firstPass));
 }
 
+/**
+ * Formats a Date object as a YYYY-MM-DD string in the specified timezone.
+ *
+ * @param {Date} date - Date to format
+ * @param {string} timeZone - IANA timezone identifier
+ * @returns {string} Date string in YYYY-MM-DD format
+ */
 function dateStringInZone(date, timeZone) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone, year: "numeric", month: "2-digit", day: "2-digit",
@@ -57,14 +72,16 @@ function dateStringInZone(date, timeZone) {
 
 // ── Fixed computeLate (minute-floored comparison) ──────────────────────────
 
+/**
+ * Calculates whether a check-in is late and how many late minutes have elapsed past the threshold.
+ *
+ * @param {Date} now - Check-in timestamp
+ * @param {object} cfg - Attendance config with workStartHour, workStartMinute, lateThresholdMin
+ * @param {string} [timeZone="UTC"] - Employee timezone
+ * @returns {{ isLate: boolean, lateMinutes: number }} Lateness assessment
+ */
 function computeLate(now, cfg, timeZone = "UTC") {
   const date = dateStringInZone(now, timeZone);
-
-  const workStart = zonedDateTimeToUtc(
-    date,
-    `${String(cfg.workStartHour).padStart(2, "0")}:${String(cfg.workStartMinute).padStart(2, "0")}`,
-    timeZone,
-  );
 
   const thresholdMinutes = cfg.workStartMinute + cfg.lateThresholdMin;
   const thresholdHour = cfg.workStartHour + Math.floor(thresholdMinutes / 60);
@@ -78,7 +95,7 @@ function computeLate(now, cfg, timeZone = "UTC") {
   const nowMinuteFloor = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
   const isLate = nowMinuteFloor > threshold;
   const lateMinutes = isLate
-    ? Math.floor((nowMinuteFloor.getTime() - workStart.getTime()) / 60_000)
+    ? Math.floor((nowMinuteFloor.getTime() - threshold.getTime()) / 60_000)
     : 0;
 
   return { isLate, lateMinutes };
@@ -93,6 +110,12 @@ const toArg = args.find(a => a.startsWith("--to="));
 const fromDate = fromArg ? fromArg.split("=")[1] : null;
 const toDate = toArg ? toArg.split("=")[1] : null;
 
+/**
+ * Main execution function for the late minutes backfill script.
+ * Recalculates lateness for existing attendance records and optionally persists updates with --apply.
+ *
+ * @returns {Promise<void>}
+ */
 async function main() {
   const cfg = await db.attendanceConfig.findFirst();
   if (!cfg) throw new Error("attendance_config row not found — cannot backfill without work-start settings");
