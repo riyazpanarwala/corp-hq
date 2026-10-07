@@ -82,8 +82,17 @@ export default function EmployeeDashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (!todayRec?.checkIn || todayRec?.checkOut) { setElapsed(null); return; }
-    const tick = () => setElapsed((Date.now() - new Date(todayRec.checkIn).getTime()) / 3_600_000);
+    const active = todayRec?.sessions?.find(s => !s.checkOut) || (todayRec?.checkIn && !todayRec?.checkOut ? todayRec : null);
+    if (!active?.checkIn) { setElapsed(null); return; }
+
+    const closedHours = (todayRec.sessions || [])
+      .filter(s => s.checkOut && s.id !== active.id)
+      .reduce((sum, s) => sum + (parseFloat(s.hoursWorked) || 0), 0);
+
+    const tick = () => {
+      const activeHours = (Date.now() - new Date(active.checkIn).getTime()) / 3_600_000;
+      setElapsed(closedHours + activeHours);
+    };
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
@@ -113,7 +122,7 @@ export default function EmployeeDashboardPage() {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const res = await authFetch("/api/attendance/checkout", { method: "PATCH", body: JSON.stringify({ timezone: tz }) });
     if (res.ok) {
-      showToast("Checked out — see you tomorrow 👋", "success");
+      showToast("Checked out 👋", "success");
       fetchAll();
     } else {
       const data = await res.json();
@@ -140,8 +149,9 @@ export default function EmployeeDashboardPage() {
 
   if (loading) return <DashSkeleton />;
 
-  const isCheckedIn = todayRec && !todayRec.checkOut;
-  const isCheckedOut = todayRec && !!todayRec.checkOut;
+  const activeSession = todayRec?.sessions?.find(s => !s.checkOut) || (todayRec?.checkIn && !todayRec?.checkOut ? todayRec : null);
+  const isCheckedIn = !!activeSession;
+  const isCheckedOut = !isCheckedIn && !!todayRec?.checkOut;
 
   const avail = (key) => {
     if (!balance) return 0;
@@ -188,9 +198,9 @@ export default function EmployeeDashboardPage() {
       <Card style={{ background: "linear-gradient(135deg,rgba(79,142,247,.07),rgba(124,92,252,.07))", border: "1px solid rgba(79,142,247,.18)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 14 }}>
           <div>
-            <div style={{ fontSize: 12, color: "var(--text2)", marginBottom: 4, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600 }}>Today's Attendance</div>
+            <div style={{ fontSize: 12, color: "var(--text2)", marginBottom: 4, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600 }}>Today&apos;s Attendance</div>
             <div style={{ fontFamily: "Syne, sans-serif", fontSize: 22, fontWeight: 800 }}>
-              {isCheckedOut ? "✅ Completed" : isCheckedIn ? "🟢 In Office" : "⚪ Not Checked In"}
+              {isCheckedIn ? "🟢 In Office" : isCheckedOut ? "✅ Checked Out" : "⚪ Not Checked In"}
             </div>
             {todayRec?.isLate && <div style={{ fontSize: 12, color: "var(--warning)", marginTop: 5 }}>⚠️ Arrived {todayRec.lateMinutes} min late</div>}
           </div>
@@ -211,6 +221,26 @@ export default function EmployeeDashboardPage() {
           ))}
         </div>
 
+        {todayRec?.sessions?.length > 0 && (
+          <div style={{ marginTop: 16, background: "var(--surface2)", borderRadius: "var(--radius-sm)", padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>
+              Today&apos;s Sessions ({todayRec.sessions.length})
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {todayRec.sessions.map((s, idx) => (
+                <div key={s.id || idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, borderBottom: idx < todayRec.sessions.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none", paddingBottom: idx < todayRec.sessions.length - 1 ? 6 : 0 }}>
+                  <span>
+                    <strong>Session #{idx + 1}:</strong> {formatTime(s.checkIn, s.checkInTz)} – {s.checkOut ? formatTime(s.checkOut, s.checkOutTz || s.checkInTz) : "Active 🟢"}
+                  </span>
+                  <span style={{ color: s.checkOut ? "var(--text2)" : "var(--success)", fontWeight: 600 }}>
+                    {s.checkOut ? formatHours(s.hoursWorked) : "In Progress"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div style={{ marginTop: 16 }}>
           {!loading && !todayRec && (
             <Btn onClick={handleCheckIn} loading={checking} disabled={checking} variant="success" size="lg" style={{ width: "100%", justifyContent: "center" }}>✅ Check In</Btn>
@@ -218,9 +248,16 @@ export default function EmployeeDashboardPage() {
           {!loading && isCheckedIn && (
             <Btn onClick={handleCheckOut} loading={checking} disabled={checking} variant="danger" size="lg" style={{ width: "100%", justifyContent: "center" }}>🚪 Check Out</Btn>
           )}
-          {isCheckedOut && (
-            <div style={{ textAlign: "center", color: "var(--text2)", fontSize: 14, padding: "12px 0" }}>
-              🎉 Work day complete — {formatHours(todayRec.hoursWorked)} logged
+          {!loading && isCheckedOut && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
+              <div style={{ textAlign: "center", color: "var(--text2)", fontSize: 14 }}>
+                {todayRec.sessions?.length > 1
+                  ? `Logged ${formatHours(todayRec.hoursWorked)} across ${todayRec.sessions.length} sessions today`
+                  : `Work session completed — ${formatHours(todayRec.hoursWorked)} logged`}
+              </div>
+              <Btn onClick={handleCheckIn} loading={checking} disabled={checking} variant="secondary" size="lg" style={{ width: "100%", justifyContent: "center" }}>
+                ▶️ Check In Again (Start Next Session)
+              </Btn>
             </div>
           )}
         </div>

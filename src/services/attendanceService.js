@@ -88,20 +88,86 @@ const attendanceService = {
   async checkIn(userId, { timezone, notes }) {
     const today = this.todayDate(timezone);
     const cfg = await this.getConfig();
-    const exists = await db.attendance.findUnique({
+    const existing = await db.attendance.findUnique({
       where: { userId_date: { userId, date: today } },
+      include: {
+        sessions: { orderBy: { checkIn: "asc" } },
+        user: { select: { id: true, name: true, department: true } },
+      },
     });
-    if (exists) throw new ApiError("Already checked in today", 409, "DUPLICATE_CHECKIN");
 
     const now = new Date();
+
+    if (existing) {
+      // Check if an existing session is still in progress (not checked out)
+      const openSession = existing.sessions.find(s => !s.checkOut);
+      if (openSession) {
+        throw new ApiError("Already checked in (session active)", 409, "DUPLICATE_CHECKIN");
+      }
+
+      // Start an additional session (e.g. Session 2, Session 3)
+      const newSession = await db.attendanceSession.create({
+        data: {
+          attendanceId: existing.id,
+          checkIn: now,
+          checkInTz: timezone,
+          notes,
+        },
+      });
+
+      // Update parent attendance: active again (checkOut cleared), keep first checkIn and late status
+      const updatedRecord = await db.attendance.update({
+        where: { id: existing.id },
+        data: {
+          checkOut: null,
+          checkOutTz: null,
+          autoCheckedOut: false,
+        },
+        include: {
+          user: { select: { id: true, name: true, department: true } },
+          sessions: { orderBy: { checkIn: "asc" } },
+        },
+      });
+
+      emitToAdmins("attendance:checkin", {
+        userId,
+        userName: updatedRecord.user.name,
+        department: updatedRecord.user.department,
+        checkIn: now,
+        isLate: updatedRecord.isLate,
+        lateMinutes: updatedRecord.lateMinutes,
+        sessionId: newSession.id,
+        isResumed: true,
+      });
+
+      return updatedRecord;
+    }
+
+    // First check-in of the day
     const { isLate, lateMinutes } = this.computeLate(now, cfg, timezone);
 
     const record = await db.attendance.create({
       data: {
-        userId, date: today, checkIn: now, checkInTz: timezone,
-        isLate, lateMinutes, status: "PRESENT", notes,
+        userId,
+        date: today,
+        checkIn: now,
+        checkInTz: timezone,
+        isLate,
+        lateMinutes,
+        status: "PRESENT",
+        notes,
+        sessions: {
+          create: {
+            checkIn: now,
+            checkInTz: timezone,
+            notes,
+          },
+        },
       },
-      include: { user: { select: { id: true, name: true, department: true } } },
+      include: {
+        user: { select: { id: true, name: true, department: true } },
+        sessions: { orderBy: { checkIn: "asc" } },
+      },
     });
 
     emitToAdmins("attendance:checkin", {
@@ -111,6 +177,8 @@ const attendanceService = {
       checkIn: record.checkIn,
       isLate,
       lateMinutes,
+      sessionId: record.sessions[0]?.id,
+      isResumed: false,
     });
 
     return record;
@@ -121,76 +189,91 @@ const attendanceService = {
     const cfg = await this.getConfig();
     const record = await db.attendance.findUnique({
       where: { userId_date: { userId, date: today } },
+      include: {
+        sessions: { orderBy: { checkIn: "asc" } },
+        user: { select: { id: true, name: true, department: true } },
+      },
     });
     if (!record) throw new ApiError("No check-in found for today", 404);
-    if (record.checkOut) throw new ApiError("Already checked out", 409, "DUPLICATE_CHECKOUT");
+
+    // Find the currently open session
+    const openSession = record.sessions.find(s => !s.checkOut);
+    if (!openSession) throw new ApiError("Already checked out", 409, "DUPLICATE_CHECKOUT");
 
     const now = new Date();
-    const hoursWorked = (now.getTime() - record.checkIn.getTime()) / 3_600_000;
-    const isHalfDay = hoursWorked < toFloat(cfg.halfDayHours);
+    const sessionHours = (now.getTime() - openSession.checkIn.getTime()) / 3_600_000;
+    const sessionHoursRounded = Math.round(sessionHours * 100) / 100;
 
-    const updated = await db.attendance.update({
-      where: { userId_date: { userId, date: today } },
+    // Close open session
+    await db.attendanceSession.update({
+      where: { id: openSession.id },
       data: {
         checkOut: now,
         checkOutTz: timezone,
-        hoursWorked: Math.round(hoursWorked * 100) / 100,
+        hoursWorked: sessionHoursRounded,
+        notes: notes ?? openSession.notes,
+      },
+    });
+
+    // Re-fetch all sessions to calculate cumulative hours worked
+    const allSessions = await db.attendanceSession.findMany({
+      where: { attendanceId: record.id },
+    });
+    const totalHoursWorked = allSessions.reduce((sum, s) => sum + toFloat(s.hoursWorked), 0);
+    const roundedTotalHours = Math.round(totalHoursWorked * 100) / 100;
+    const isHalfDay = roundedTotalHours < toFloat(cfg.halfDayHours);
+
+    const updated = await db.attendance.update({
+      where: { id: record.id },
+      data: {
+        checkOut: now,
+        checkOutTz: timezone,
+        hoursWorked: roundedTotalHours,
         isHalfDay,
         status: isHalfDay ? "HALF_DAY" : "PRESENT",
         notes: notes ?? record.notes,
       },
+      include: {
+        user: { select: { id: true, name: true, department: true } },
+        sessions: { orderBy: { checkIn: "asc" } },
+      },
     });
 
     emitToAdmins("attendance:checkout", {
-      userId, checkOut: now, hoursWorked: updated.hoursWorked, isHalfDay,
+      userId,
+      checkOut: now,
+      hoursWorked: updated.hoursWorked,
+      isHalfDay,
+      sessionId: openSession.id,
     });
 
     return updated;
   },
 
-  // FIX (getTodayRecord — closed records): The previous version filtered by
-  // `checkOut: null`, so after an employee checked out the query fell back to
-  // the stored user timezone, which could differ from the checkInTz actually
-  // used when the row was written.  This returned null for today's completed
-  // record on the dashboard.
-  //
-  // New strategy: fetch the most recent attendance record regardless of
-  // checkout state.  If it has a checkInTz, use that to resolve "today" and
-  // look up the row.  Only fall back to the stored user timezone if there is
-  // no recent record at all (brand new employee, no history).
   async getTodayRecord(userId) {
-    // Most recent record for this user — open or closed
     const recent = await db.attendance.findFirst({
       where: { userId },
       orderBy: { checkIn: "desc" },
       select: { checkInTz: true, date: true },
     });
 
+    let today;
     if (recent?.checkInTz) {
-      const today = this.todayDate(recent.checkInTz);
-      return db.attendance.findUnique({
-        where: { userId_date: { userId, date: today } },
+      today = this.todayDate(recent.checkInTz);
+    } else {
+      const user = await db.user.findUnique({
+        where: { id: userId },
+        select: { timezone: true },
       });
+      today = this.todayDate(user?.timezone || "UTC");
     }
 
-    // No attendance history — fall back to stored user timezone
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { timezone: true },
-    });
-    const today = this.todayDate(user?.timezone || "UTC");
     return db.attendance.findUnique({
       where: { userId_date: { userId, date: today } },
+      include: { sessions: { orderBy: { checkIn: "asc" } } },
     });
   },
 
-  // FIX (CodeRabbit #9 — atomic regularization approval): recordManual() now
-  // accepts an optional Prisma client (defaults to the module-level `db`).
-  // regularizationService.review() passes its transaction client (`tx`) here
-  // so the regularization status flip and the attendance upsert commit or
-  // roll back together. Previously the status flip committed immediately via
-  // updateMany(), and if this upsert failed afterward, the request was stuck
-  // "APPROVED" with no attendance correction and no way to retry.
   async recordManual({ userId, date, checkInTime, checkOutTime, timezone, notes }, client = db) {
     const cfg = await this.getConfig();
     const employee = await client.user.findFirst({
@@ -206,30 +289,111 @@ const attendanceService = {
       throw new ApiError("Check out must be after check in", 422, "INVALID_CHECKOUT_TIME");
     }
 
-    const { isLate, lateMinutes } = this.computeLate(checkIn, cfg, timezone);
-    const hoursWorked = checkOut
+    const manualHours = checkOut
       ? Math.round(((checkOut.getTime() - checkIn.getTime()) / 3_600_000) * 100) / 100
       : null;
-    const isHalfDay = hoursWorked != null && hoursWorked < toFloat(cfg.halfDayHours);
 
-    return client.attendance.upsert({
+    const existing = await client.attendance.findUnique({
       where: { userId_date: { userId, date: workDate } },
-      update: {
-        checkIn, checkOut, checkInTz: timezone,
+      include: { sessions: { orderBy: { checkIn: "asc" } } },
+    });
+
+    if (existing && existing.sessions.length > 0) {
+      const existingSession = existing.sessions.find(s => {
+        return Math.abs(s.checkIn.getTime() - checkIn.getTime()) < 60_000;
+      });
+
+      if (existingSession) {
+        await client.attendanceSession.update({
+          where: { id: existingSession.id },
+          data: {
+            checkIn,
+            checkOut,
+            checkInTz: timezone,
+            checkOutTz: checkOut ? timezone : null,
+            hoursWorked: manualHours,
+            notes,
+          },
+        });
+      } else {
+        await client.attendanceSession.create({
+          data: {
+            attendanceId: existing.id,
+            checkIn,
+            checkOut,
+            checkInTz: timezone,
+            checkOutTz: checkOut ? timezone : null,
+            hoursWorked: manualHours,
+            notes,
+          },
+        });
+      }
+
+      const allSessions = await client.attendanceSession.findMany({
+        where: { attendanceId: existing.id },
+        orderBy: { checkIn: "asc" },
+      });
+
+      const firstSession = allSessions[0];
+      const lastSession = allSessions[allSessions.length - 1];
+      const totalHours = allSessions.reduce((sum, s) => sum + toFloat(s.hoursWorked), 0);
+      const roundedTotalHours = Math.round(totalHours * 100) / 100;
+      const { isLate, lateMinutes } = this.computeLate(firstSession.checkIn, cfg, timezone);
+      const isHalfDay = roundedTotalHours < toFloat(cfg.halfDayHours);
+
+      return client.attendance.update({
+        where: { id: existing.id },
+        data: {
+          checkIn: firstSession.checkIn,
+          checkOut: lastSession.checkOut,
+          checkInTz: firstSession.checkInTz,
+          checkOutTz: lastSession.checkOutTz,
+          hoursWorked: roundedTotalHours,
+          isLate,
+          lateMinutes,
+          isHalfDay,
+          status: isHalfDay ? "HALF_DAY" : "PRESENT",
+          notes: notes ?? existing.notes,
+        },
+        include: {
+          user: { select: { id: true, name: true, department: true, designation: true } },
+          sessions: { orderBy: { checkIn: "asc" } },
+        },
+      });
+    }
+
+    const { isLate, lateMinutes } = this.computeLate(checkIn, cfg, timezone);
+    const isHalfDay = manualHours != null && manualHours < toFloat(cfg.halfDayHours);
+
+    return client.attendance.create({
+      data: {
+        userId,
+        date: workDate,
+        checkIn,
+        checkOut,
+        checkInTz: timezone,
         checkOutTz: checkOut ? timezone : null,
-        hoursWorked, isLate, lateMinutes, isHalfDay,
-        autoCheckedOut: false,
+        hoursWorked: manualHours,
+        isLate,
+        lateMinutes,
+        isHalfDay,
         status: isHalfDay ? "HALF_DAY" : "PRESENT",
         notes,
+        sessions: {
+          create: {
+            checkIn,
+            checkOut,
+            checkInTz: timezone,
+            checkOutTz: checkOut ? timezone : null,
+            hoursWorked: manualHours,
+            notes,
+          },
+        },
       },
-      create: {
-        userId, date: workDate, checkIn, checkOut,
-        checkInTz: timezone, checkOutTz: checkOut ? timezone : null,
-        hoursWorked, isLate, lateMinutes, isHalfDay,
-        status: isHalfDay ? "HALF_DAY" : "PRESENT",
-        notes,
+      include: {
+        user: { select: { id: true, name: true, department: true, designation: true } },
+        sessions: { orderBy: { checkIn: "asc" } },
       },
-      include: { user: { select: { id: true, name: true, department: true, designation: true } } },
     });
   },
 
@@ -248,7 +412,10 @@ const attendanceService = {
     const [records, total] = await Promise.all([
       db.attendance.findMany({
         where,
-        include: { user: { select: { id: true, name: true, department: true, designation: true } } },
+        include: {
+          user: { select: { id: true, name: true, department: true, designation: true } },
+          sessions: { orderBy: { checkIn: "asc" } },
+        },
         orderBy: [{ date: "desc" }, { checkIn: "desc" }],
         skip: (page - 1) * limit,
         take: limit,
@@ -262,47 +429,55 @@ const attendanceService = {
     };
   },
 
-  // FIX (autoCheckoutOverdue — status inconsistency): The previous code
-  // hardcoded `status: "PRESENT"` in the update even when `isHalfDay` was
-  // true, leaving the DB in an inconsistent state where isHalfDay=true but
-  // status="PRESENT".  The status now derives from the computed isHalfDay,
-  // matching the same logic used in checkOut() and recordManual().
   async autoCheckoutOverdue() {
     const cfg = await this.getConfig();
     const now = new Date();
     const cutoff = new Date(now.getTime() - cfg.autoCheckoutHours * 3_600_000);
 
-    const overdue = await db.attendance.findMany({
+    const overdueSessions = await db.attendanceSession.findMany({
       where: { checkOut: null, checkIn: { lte: cutoff } },
+      include: { attendance: true },
     });
 
     let count = 0;
-    for (const rec of overdue) {
-      const tz = rec.checkInTz || "UTC";
+    for (const session of overdueSessions) {
+      const tz = session.checkInTz || session.attendance.checkInTz || "UTC";
       const today = this.todayDate(tz);
-      const recDate = rec.date instanceof Date ? rec.date : new Date(rec.date);
+      const recDate = session.attendance.date instanceof Date ? session.attendance.date : new Date(session.attendance.date);
 
-      // Only auto-checkout records whose stored date equals today in their TZ
       if (recDate.getTime() !== today.getTime()) continue;
 
-      const checkOut = new Date(rec.checkIn.getTime() + cfg.autoCheckoutHours * 3_600_000);
-      const hoursWorked = cfg.autoCheckoutHours;
-      const isHalfDay = toFloat(hoursWorked) < toFloat(cfg.halfDayHours);
+      const checkOut = new Date(session.checkIn.getTime() + cfg.autoCheckoutHours * 3_600_000);
+      const sessionHours = cfg.autoCheckoutHours;
 
-      await db.attendance
-        .update({
-          where: { id: rec.id },
-          data: {
-            checkOut,
-            checkOutTz: tz,
-            hoursWorked,
-            autoCheckedOut: true,
-            isHalfDay,
-            // FIX: derive status from isHalfDay instead of hardcoding "PRESENT"
-            status: isHalfDay ? "HALF_DAY" : "PRESENT",
-          },
-        })
-        .catch(e => console.error(`[autoCheckout] Failed to update record ${rec.id}:`, e.message));
+      await db.attendanceSession.update({
+        where: { id: session.id },
+        data: {
+          checkOut,
+          checkOutTz: tz,
+          hoursWorked: sessionHours,
+        },
+      }).catch(e => console.error(`[autoCheckout] Failed to update session ${session.id}:`, e.message));
+
+      const allSessions = await db.attendanceSession.findMany({
+        where: { attendanceId: session.attendanceId },
+      });
+      const totalHoursWorked = allSessions.reduce((sum, s) => sum + toFloat(s.hoursWorked), 0);
+      const roundedTotalHours = Math.round(totalHoursWorked * 100) / 100;
+      const isHalfDay = roundedTotalHours < toFloat(cfg.halfDayHours);
+
+      await db.attendance.update({
+        where: { id: session.attendanceId },
+        data: {
+          checkOut,
+          checkOutTz: tz,
+          hoursWorked: roundedTotalHours,
+          autoCheckedOut: true,
+          isHalfDay,
+          status: isHalfDay ? "HALF_DAY" : "PRESENT",
+        },
+      }).catch(e => console.error(`[autoCheckout] Failed to update record ${session.attendanceId}:`, e.message));
+
       count++;
     }
     return count;

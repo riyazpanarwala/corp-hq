@@ -69,8 +69,17 @@ export default function EmployeeAttendancePage() {
   }, [socketOn, fetchRegRequests, fetchRecords]);
 
   useEffect(() => {
-    if (!todayRec?.checkIn || todayRec?.checkOut) { setElapsed(null); return; }
-    const tick = () => setElapsed((Date.now() - new Date(todayRec.checkIn).getTime()) / 3_600_000);
+    const active = todayRec?.sessions?.find(s => !s.checkOut) || (todayRec?.checkIn && !todayRec?.checkOut ? todayRec : null);
+    if (!active?.checkIn) { setElapsed(null); return; }
+
+    const closedHours = (todayRec.sessions || [])
+      .filter(s => s.checkOut && s.id !== active.id)
+      .reduce((sum, s) => sum + (parseFloat(s.hoursWorked) || 0), 0);
+
+    const tick = () => {
+      const activeHours = (Date.now() - new Date(active.checkIn).getTime()) / 3_600_000;
+      setElapsed(closedHours + activeHours);
+    };
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
@@ -157,18 +166,15 @@ export default function EmployeeAttendancePage() {
         showToast(json.error || "Failed to cancel request.", "error");
       }
     } catch (err) {
-      // FIX (CodeRabbit #9 — missing catch): a rejected authFetch (network
-      // failure, thrown "Session expired") previously propagated as an
-      // unhandled rejection with no feedback to the employee. Now surfaces
-      // the same error toast the non-OK response path already uses.
       showToast(err.message || "Failed to cancel request.", "error");
     } finally {
       setCancellingId(null);
     }
   };
 
-  const isIn = todayRec && !todayRec.checkOut;
-  const isDone = todayRec && !!todayRec.checkOut;
+  const activeSession = todayRec?.sessions?.find(s => !s.checkOut) || (todayRec?.checkIn && !todayRec?.checkOut ? todayRec : null);
+  const isIn = !!activeSession;
+  const isDone = !isIn && !!todayRec?.checkOut;
   const totalH = records.reduce((s, r) => s + (Number(r.hoursWorked) || 0), 0);
 
   const regCols = [
@@ -216,7 +222,7 @@ export default function EmployeeAttendancePage() {
       <Card style={{ background: "linear-gradient(135deg,rgba(79,142,247,.06),rgba(124,92,252,.06))", border: "1px solid rgba(79,142,247,.18)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
           <div style={{ fontFamily: "Syne, sans-serif", fontSize: 18, fontWeight: 800 }}>
-            {isDone ? "✅ Completed" : isIn ? "🟢 In Office" : "⚪ Not Checked In"}
+            {isIn ? "🟢 In Office" : isDone ? "✅ Checked Out" : "⚪ Not Checked In"}
           </div>
           <LiveClock />
         </div>
@@ -232,8 +238,34 @@ export default function EmployeeAttendancePage() {
             </div>
           ))}
         </div>
+
+        {todayRec?.sessions?.length > 0 && (
+          <div style={{ marginBottom: 14, background: "var(--surface2)", borderRadius: "var(--radius-sm)", padding: "10px 12px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>
+              Today&apos;s Sessions ({todayRec.sessions.length})
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {todayRec.sessions.map((s, idx) => (
+                <div key={s.id || idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                  <span>
+                    Session #{idx + 1}: {formatTime(s.checkIn, s.checkInTz)} – {s.checkOut ? formatTime(s.checkOut, s.checkOutTz || s.checkInTz) : "Active 🟢"}
+                  </span>
+                  <span style={{ color: s.checkOut ? "var(--text2)" : "var(--success)", fontWeight: 600 }}>
+                    {s.checkOut ? formatHours(s.hoursWorked) : "In Progress"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {!todayRec && <Btn onClick={handleCheckIn} loading={checking} variant="success" size="md" style={{ width: "100%", justifyContent: "center" }}>✅ Check In</Btn>}
         {isIn && <Btn onClick={handleCheckOut} loading={checking} variant="danger" size="md" style={{ width: "100%", justifyContent: "center" }}>🚪 Check Out</Btn>}
+        {todayRec && !isIn && (
+          <Btn onClick={handleCheckIn} loading={checking} variant="secondary" size="md" style={{ width: "100%", justifyContent: "center" }}>
+            ▶️ Check In Again (Start Next Session)
+          </Btn>
+        )}
       </Card>
 
       <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 14 }}>
@@ -250,7 +282,19 @@ export default function EmployeeAttendancePage() {
               { key: "date", label: "Date", render: r => formatDate(r.date) },
               { key: "checkIn", label: "Check In", render: r => formatTime(r.checkIn, r.checkInTz) },
               { key: "checkOut", label: "Check Out", render: r => formatTime(r.checkOut, r.checkOutTz || r.checkInTz) },
-              { key: "hours", label: "Hours", render: r => formatHours(r.hoursWorked) },
+              {
+                key: "hours", label: "Hours",
+                render: r => (
+                  <div>
+                    <span>{formatHours(r.hoursWorked)}</span>
+                    {r.sessions?.length > 1 && (
+                      <span style={{ fontSize: 11, color: "var(--accent)", marginLeft: 6 }}>
+                        ({r.sessions.length} sessions)
+                      </span>
+                    )}
+                  </div>
+                ),
+              },
               { key: "late", label: "Late By", render: r => r.isLate ? <span style={{ color: "var(--warning)" }}>+{r.lateMinutes}m</span> : "—" },
               { key: "status", label: "Status", render: r => <Badge status={resolveAttStatus(r)} /> },
             ]}
