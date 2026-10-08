@@ -11,6 +11,11 @@ const PORT = parseInt(process.env.PORT || "3000", 10);
 
 // ── 1. Auto-migrate ────────────────────────────────────────────
 function runMigrations() {
+  if (process.env.AUTO_MIGRATE === "false" || process.env.SKIP_AUTO_MIGRATION === "true") {
+    console.log("⏭️   Skipping Prisma auto-migration on server boot (disabled via environment).");
+    return;
+  }
+
   console.log("📦  Checking Prisma migrations…");
   try {
     // migrate deploy: applies pending migrations, idempotent, never drops data
@@ -39,8 +44,17 @@ function runMigrations() {
         process.exit(1);
       }
     } else {
-      console.error("❌  Migration failed. Exiting.");
-      process.exit(1);
+      // In production (e.g. Render), pooler saturation or transient connection errors
+      // during container restarts should not bring down the entire web service if the DB is already migrated.
+      if (process.env.FAIL_ON_MIGRATION_ERROR === "true") {
+        console.error("❌  Migration failed. Exiting.");
+        process.exit(1);
+      } else {
+        console.warn(
+          "⚠️   Prisma migration check failed on boot (e.g. connection pool limit or transient network error).\n" +
+          "    Continuing server startup. To enforce exit on migration failure, set FAIL_ON_MIGRATION_ERROR=true.",
+        );
+      }
     }
   }
 }
