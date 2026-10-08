@@ -176,6 +176,14 @@ The seed adds four employees, current-year leave balances, about 60 days of samp
 - Password-reset responses do not reveal whether an email is registered.
 - Reset links expire after 30 minutes, work once, and invalidate the user's existing sessions after a successful reset.
 
+### Biometric Integration (Matrix COSEC)
+
+- Physical scanner punches ingest via `POST /api/integrations/matrix` authenticated by `MATRIX_WEBHOOK_SECRET`.
+- Admin links employees to their Matrix User/Badge ID in the Employees dashboard (`biometricId`).
+- Automatic session tracking: Entry punches create a check-in session; exit punches close the active session.
+- Built-in deduplication (60s debounce window) ensures accidental double finger scans are only processed once.
+- Supports both direct Web API push from Matrix and the local bridge script (`scripts/matrix-bridge.js`) for COSEC CENTRA without the Web API license.
+
 ## Useful commands
 
 | Command | Purpose |
@@ -250,6 +258,13 @@ Leave list filters include `status`, `userId`, `page`, and `limit`. Managers use
 | `POST` | `/api/holidays` | Admin creates a holiday |
 | `DELETE` | `/api/holidays/:id` | Admin removes a holiday |
 | `GET` | `/api/reports/monthly` | Admin monthly attendance summary |
+
+### Biometric integrations
+
+| Method | Endpoint | Access / purpose |
+| --- | --- | --- |
+| `GET` | `/api/integrations/matrix` | Integration health status and webhook configuration check |
+| `POST` | `/api/integrations/matrix` | Ingest Matrix COSEC biometric fingerprint/card punches |
 
 ## Real-time updates
 

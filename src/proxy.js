@@ -31,7 +31,7 @@ const SKIP_FROM_PATHS = new Set(["/"]);
 export async function proxy(request) {
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC_PATHS.has(pathname)) return NextResponse.next();
+  if (PUBLIC_PATHS.has(pathname) || pathname.startsWith("/api/integrations/")) return NextResponse.next();
   if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) return NextResponse.next();
 
   const cookieToken = request.cookies.get("access_token")?.value ?? null;

@@ -46,6 +46,7 @@ model User {
   timezone     String   @default("UTC")
   isActive     Boolean  @default(true) @map("is_active")
   managerId    Int?     @map("manager_id")
+  biometricId  String?  @unique @map("biometric_id")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -57,6 +58,7 @@ model User {
   passwordResetTokens    PasswordResetToken[]
   regularizations        AttendanceRegularization[]  @relation("EmployeeRegularizations")
   reviewedRegularizations AttendanceRegularization[] @relation("ReviewedRegularizations")
+  biometricLogs          BiometricPunchLog[]
   manager                User?                        @relation("ManagementHierarchy", fields: [managerId], references: [id], onDelete: SetNull)
   directReports          User[]                       @relation("ManagementHierarchy")
 
@@ -64,6 +66,7 @@ model User {
   @@index([role])
   @@index([department])
   @@index([managerId])
+  @@index([biometricId])
   @@map("users")
 }
 
@@ -249,4 +252,25 @@ model AttendanceConfig {
   updatedAt         DateTime @updatedAt @map("updated_at")
 
   @@map("attendance_config")
+}
+
+model BiometricPunchLog {
+  id          Int      @id @default(autoincrement())
+  biometricId String   @map("biometric_id")
+  userId      Int?     @map("user_id")
+  punchTime   DateTime @map("punch_time")
+  direction   String?  // "IN", "OUT", "AUTO"
+  deviceId    String?  @map("device_id")
+  status      String   @default("PROCESSED") // "PROCESSED", "IGNORED_DUPLICATE", "UNMAPPED_USER", "ERROR"
+  message     String?
+  rawPayload  Json?    @map("raw_payload")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([biometricId])
+  @@index([userId])
+  @@index([punchTime])
+  @@index([createdAt])
+  @@map("biometric_punch_logs")
 }

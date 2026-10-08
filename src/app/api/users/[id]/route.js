@@ -47,9 +47,22 @@ export async function PATCH(request, { params }) {
       }
     }
 
+    if (body.biometricId !== undefined) {
+      if (body.biometricId) {
+        const existingBio = await db.user.findFirst({
+          where: { biometricId: body.biometricId, NOT: { id } },
+          select: { id: true, name: true },
+        });
+        if (existingBio) throw new ApiError(`Biometric ID already assigned to ${existingBio.name}`, 422);
+      }
+    }
+
     const dataToUpdate = {};
     if (body.managerId !== undefined) {
       dataToUpdate.managerId = body.managerId;
+    }
+    if (body.biometricId !== undefined) {
+      dataToUpdate.biometricId = body.biometricId ? body.biometricId : null;
     }
     if (passwordHash !== null) {
       dataToUpdate.passwordHash = passwordHash;
@@ -66,6 +79,7 @@ export async function PATCH(request, { params }) {
           role: true,
           department: true,
           managerId: true,
+          biometricId: true,
           manager: { select: { id: true, name: true } },
         },
       });

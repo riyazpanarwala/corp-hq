@@ -13,6 +13,7 @@ const EMPTY_FORM = {
   timezone: "Asia/Kolkata",
   password: "",
   managerId: "",
+  biometricId: "",
 };
 
 export default function AdminEmployeesPage() {
@@ -35,6 +36,10 @@ export default function AdminEmployeesPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [passwordError, setPasswordError] = useState("");
   const [updatingPassword, setUpdatingPassword] = useState(false);
+  const [biometricEmp, setBiometricEmp] = useState(null);
+  const [biometricIdInput, setBiometricIdInput] = useState("");
+  const [biometricError, setBiometricError] = useState("");
+  const [savingBiometric, setSavingBiometric] = useState(false);
   const { toasts, toast, remove } = useToast();
 
   const today = todayStr();
@@ -79,6 +84,7 @@ export default function AdminEmployeesPage() {
       designation: form.designation.trim(),
       timezone: form.timezone.trim() || "UTC",
       managerId: form.managerId ? Number(form.managerId) : null,
+      biometricId: form.biometricId.trim() || null,
     };
 
     if (!payload.name || !payload.email || !payload.department || !payload.password) {
@@ -231,6 +237,41 @@ export default function AdminEmployeesPage() {
     }
   };
 
+  const openBiometricModal = (emp) => {
+    setBiometricEmp(emp);
+    setBiometricIdInput(emp.biometricId || "");
+    setBiometricError("");
+  };
+
+  const closeBiometricModal = () => {
+    if (savingBiometric) return;
+    setBiometricEmp(null);
+    setBiometricIdInput("");
+    setBiometricError("");
+  };
+
+  const updateBiometricId = async (e) => {
+    e.preventDefault();
+    setBiometricError("");
+    setSavingBiometric(true);
+    try {
+      const res = await authFetch(`/api/users/${biometricEmp.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ biometricId: biometricIdInput.trim() || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Could not update biometric ID.");
+      await fetchAll();
+      toast(`Matrix Biometric ID updated for ${biometricEmp.name}.`, "success");
+      setBiometricEmp(null);
+    } catch (err) {
+      setBiometricError(err.message || "Failed to update biometric ID.");
+    } finally {
+      setSavingBiometric(false);
+    }
+  };
+
   const filtered = employees.filter(e =>
     !search ||
     e.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -313,6 +354,36 @@ export default function AdminEmployeesPage() {
                 )}
               </div>
 
+              <div style={{
+                marginTop: 10,
+                padding: "6px 10px",
+                background: "var(--surface2)",
+                borderRadius: "var(--radius-sm)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                fontSize: 11,
+              }}>
+                <span style={{ color: "var(--text3)" }}>
+                  Matrix ID: <strong style={{ color: "var(--text)" }}>{emp.biometricId || "Not mapped"}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => openBiometricModal(emp)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--primary)",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    padding: 0,
+                  }}
+                >
+                  {emp.biometricId ? "Edit" : "+ Assign"}
+                </button>
+              </div>
+
               <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                 <span style={{ fontSize: 11, color: "var(--text3)" }}>{emp.timezone}</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -368,6 +439,13 @@ export default function AdminEmployeesPage() {
                   <option value="">No manager</option>
                   {allUsers.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
                 </select>
+              </Field>
+              <Field label="Matrix Biometric ID" hint="Optional enrollment ID from Matrix COSEC scanner">
+                <input
+                  value={form.biometricId}
+                  onChange={e => setField("biometricId", e.target.value)}
+                  placeholder="e.g. 10042"
+                />
               </Field>
               <Field label="Temporary password" hint="Minimum 8 characters.">
                 <input type="password" value={form.password} onChange={e => setField("password", e.target.value)} placeholder="password123" />
@@ -495,6 +573,54 @@ export default function AdminEmployeesPage() {
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 6 }}>
               <Btn variant="ghost" onClick={closePasswordModal} disabled={updatingPassword}>Cancel</Btn>
               <Btn type="submit" loading={updatingPassword}>Update Password</Btn>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {biometricEmp && (
+        <Modal title={`Matrix Biometric ID · ${biometricEmp.name}`} onClose={closeBiometricModal} width={440}>
+          <form onSubmit={updateBiometricId} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{
+              background: "var(--surface2)",
+              borderRadius: "var(--radius-md)",
+              padding: "12px 14px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{biometricEmp.name}</div>
+                <div style={{ fontSize: 12, color: "var(--text3)", marginTop: 2 }}>{biometricEmp.email}</div>
+              </div>
+              <Badge status={biometricEmp.department || "Employee"} />
+            </div>
+
+            <div style={{ fontSize: 12, color: "var(--text2)", lineHeight: 1.5 }}>
+              Enter the numeric User ID or badge number assigned to this employee in Matrix COSEC CENTRA. When this employee scans their fingerprint, punches will automatically map to their CorpHQ profile.
+            </div>
+
+            <Field label="Matrix Enrollment / User ID" hint="Leave empty to unassign">
+              <input
+                value={biometricIdInput}
+                onChange={e => {
+                  setBiometricIdInput(e.target.value);
+                  if (biometricError) setBiometricError("");
+                }}
+                placeholder="e.g. 10042"
+                autoFocus
+              />
+            </Field>
+
+            {biometricError && (
+              <div style={{ color: "var(--danger)", fontSize: 13, fontWeight: 600 }}>
+                {biometricError}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 4 }}>
+              <Btn variant="ghost" onClick={closeBiometricModal} disabled={savingBiometric}>Cancel</Btn>
+              <Btn type="submit" loading={savingBiometric}>Save Biometric ID</Btn>
             </div>
           </form>
         </Modal>

@@ -191,6 +191,7 @@ const CreateUserSchema = z.object({
   designation: z.string().optional(),
   timezone: z.string().default("UTC"),
   managerId: z.coerce.number().int().positive().nullable().optional(),
+  biometricId: z.string().trim().min(1).max(50).nullable().optional(),
 });
 
 const UpdateUserHierarchySchema = z.object({
@@ -207,6 +208,7 @@ const UpdateUserPasswordSchema = z.object({
 const UpdateUserSchema = z
   .object({
     managerId: z.coerce.number().int().positive().nullable().optional(),
+    biometricId: z.string().trim().min(1).max(50).nullable().optional(),
     password: z
       .string()
       .min(8, "Password must be at least 8 characters")
@@ -214,15 +216,47 @@ const UpdateUserSchema = z
       .optional(),
   })
   .refine(
-    (d) => d.managerId !== undefined || d.password !== undefined,
+    (d) => d.managerId !== undefined || d.password !== undefined || d.biometricId !== undefined,
     { message: "At least one field to update must be provided" }
   );
 
 const RefreshSchema = z.object({ refreshToken: z.string().min(1) });
+
+const MatrixPunchRawSchema = z.object({
+  UserID: z.union([z.string(), z.number()]).optional(),
+  userId: z.union([z.string(), z.number()]).optional(),
+  biometricId: z.union([z.string(), z.number()]).optional(),
+  EnrollmentID: z.union([z.string(), z.number()]).optional(),
+  badgeId: z.union([z.string(), z.number()]).optional(),
+
+  EventTime: z.union([z.string(), z.number(), z.date()]).optional(),
+  eventTime: z.union([z.string(), z.number(), z.date()]).optional(),
+  punchTime: z.union([z.string(), z.number(), z.date()]).optional(),
+  timestamp: z.union([z.string(), z.number(), z.date()]).optional(),
+  dateTime: z.union([z.string(), z.number(), z.date()]).optional(),
+
+  Direction: z.union([z.string(), z.number()]).optional(),
+  direction: z.union([z.string(), z.number()]).optional(),
+
+  DeviceID: z.string().optional(),
+  deviceId: z.string().optional(),
+  ControllerName: z.string().optional(),
+
+  secret: z.string().optional(),
+}).passthrough();
+
+const MatrixWebhookPayloadSchema = z.union([
+  z.array(MatrixPunchRawSchema),
+  z.object({
+    events: z.array(MatrixPunchRawSchema),
+  }),
+  MatrixPunchRawSchema,
+]);
 
 module.exports = {
   LoginSchema, ForgotPasswordSchema, ResetPasswordSchema, CheckInSchema, CheckOutSchema,
   ManualAttendanceSchema, AttendanceFilterSchema, ApplyLeaveSchema, RecordPastLeaveSchema, ReviewLeaveSchema,
   LeaveFilterSchema, CreateUserSchema, UpdateUserHierarchySchema, UpdateUserPasswordSchema, UpdateUserSchema, RefreshSchema,
   CreateHolidaySchema, RegularizationRequestSchema, RegularizationFilterSchema, ReviewRegularizationSchema,
+  MatrixPunchRawSchema, MatrixWebhookPayloadSchema,
 };
