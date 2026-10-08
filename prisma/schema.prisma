@@ -160,7 +160,8 @@ model Attendance {
   createdAt      DateTime         @default(now()) @map("created_at")
   updatedAt      DateTime         @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions AttendanceSession[]
 
   @@unique([userId, date])
   @@index([userId])
@@ -168,6 +169,25 @@ model Attendance {
   @@index([userId, date])
   @@index([isLate])
   @@map("attendance")
+}
+
+model AttendanceSession {
+  id           Int        @id @default(autoincrement())
+  attendanceId Int        @map("attendance_id")
+  checkIn      DateTime   @map("check_in")
+  checkOut     DateTime?  @map("check_out")
+  checkInTz    String?    @map("check_in_tz")
+  checkOutTz   String?    @map("check_out_tz")
+  hoursWorked  Decimal?   @map("hours_worked") @db.Decimal(5, 2)
+  notes        String?
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  attendance   Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  @@index([attendanceId])
+  @@index([checkIn])
+  @@map("attendance_sessions")
 }
 
 model LeaveBalance {

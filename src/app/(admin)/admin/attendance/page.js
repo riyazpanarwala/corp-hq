@@ -205,7 +205,19 @@ export default function AdminAttendancePage() {
     { key: "date",     label: "Date",      render: r => formatDate(r.date) },
     { key: "checkIn",  label: "Check In",  render: r => formatTime(r.checkIn, r.checkInTz) },
     { key: "checkOut", label: "Check Out", render: r => formatTime(r.checkOut, r.checkOutTz || r.checkInTz) },
-    { key: "hours",    label: "Hours",     render: r => formatHours(r.hoursWorked) },
+    {
+      key: "hours", label: "Hours",
+      render: r => (
+        <div>
+          <span>{formatHours(r.hoursWorked)}</span>
+          {r.sessions?.length > 1 && (
+            <span style={{ fontSize: 11, color: "var(--accent)", marginLeft: 6, display: "block" }}>
+              ({r.sessions.length} sessions)
+            </span>
+          )}
+        </div>
+      ),
+    },
     { key: "late",     label: "Late By",   render: r => r.isLate ? <span style={{color:"var(--warning)"}}>+{r.lateMinutes}m</span> : "-" },
     { key: "status",   label: "Status",    render: r => <Badge status={resolveAttStatus(r)} /> },
     ...(isAdmin ? [{
@@ -301,6 +313,26 @@ export default function AdminAttendancePage() {
                 <Field label="Date">
                   <input type="date" value={timeForm.date} onChange={e => setTimeField("date", e.target.value)} />
                 </Field>
+              </div>
+            )}
+
+            {isEditing && editingRecord?.sessions?.length > 0 && (
+              <div style={{ background: "var(--surface2)", borderRadius: "var(--radius-sm)", padding: "10px 12px" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>
+                  Existing Sessions ({editingRecord.sessions.length})
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {editingRecord.sessions.map((s, idx) => (
+                    <div key={s.id || idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                      <span>
+                        Session #{idx + 1}: {isoToLocalTime(s.checkIn, s.checkInTz || timeForm.timezone)} – {s.checkOut ? isoToLocalTime(s.checkOut, s.checkOutTz || s.checkInTz || timeForm.timezone) : "Active 🟢"}
+                      </span>
+                      <span style={{ color: "var(--text2)", fontWeight: 600 }}>
+                        {s.checkOut ? formatHours(s.hoursWorked) : "In Progress"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
