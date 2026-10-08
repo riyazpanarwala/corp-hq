@@ -40,24 +40,23 @@ function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
 function extractClientIp(request) {
   if (!request || !request.headers) return null;
 
-  // Only trust X-Forwarded-For if explicitly enabled in environment (default: false in dev)
-  const trustProxy = process.env.TRUST_PROXY === "true" || process.env.NODE_ENV === "production";
-  let ip = null;
+  // Check direct cloudflare / real-ip headers first
+  let ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-real-ip");
 
-  if (trustProxy) {
+  if (!ip) {
+    const trustProxy = process.env.TRUST_PROXY === "true" || process.env.NODE_ENV === "production";
     const forwarded = request.headers.get("x-forwarded-for");
-    if (forwarded) {
+    if (forwarded && (trustProxy || process.env.NODE_ENV !== "production")) {
       const parts = forwarded.split(",").map(p => p.trim()).filter(Boolean);
       const hopCount = Math.max(1, parseInt(process.env.PROXY_HOPS || "1", 10));
-      // Rightmost hop from trusted reverse proxy
+      // Rightmost hop from trusted reverse proxy or client IP
       const targetIdx = Math.max(0, parts.length - hopCount);
-      ip = parts[targetIdx] || parts[parts.length - 1];
+      ip = parts[targetIdx] || parts[0];
     }
   }
 
-  if (!ip) {
-    // If not using proxy or no XFF, check for direct remote address or standard header
-    ip = request.headers.get("x-real-ip");
+  if (!ip && process.env.NODE_ENV !== "production") {
+    ip = "127.0.0.1";
   }
 
   if (!ip) return null;

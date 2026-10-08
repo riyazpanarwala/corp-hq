@@ -139,10 +139,16 @@ export default function EmployeeAttendancePage() {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     try {
       const res = await authFetch("/api/attendance/checkout", { method: "PATCH", body: JSON.stringify({ timezone: tz }) });
-      if (!res.ok) throw new Error("Attendance request failed");
-      await fetchRecords();
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data?.error || "Attendance request failed", "error");
+      } else {
+        showToast("Checked out 👋", "success");
+        await fetchRecords();
+      }
     } catch (error) {
-      console.error(error);
+      console.error("[Checkout] request failed:", error);
+      showToast("Attendance request failed", "error");
     } finally {
       setChecking(false);
     }
@@ -353,10 +359,15 @@ export default function EmployeeAttendancePage() {
                       {r.workMode === "WFH" ? "🏠 Remote" : r.workMode === "ON_DUTY" ? "✈️ On Duty" : "🏢 Office"}
                     </span>
                     {r.workMode === "WFO" && (
-                      <span style={{ fontSize: 10, color: r.locationVerified ? "var(--success)" : "var(--warning)" }}>
-                        {r.locationVerified ? "🟢 Verified" : "⚠️ Out of fence"}{r.distanceMeters != null ? ` (${r.distanceMeters}m)` : ""}
+                      <span style={{ fontSize: 10, color: r.locationVerified ? "var(--success)" : r.distanceMeters != null ? "var(--warning)" : "var(--text3)" }}>
+                        {r.locationVerified
+                          ? "🟢 Verified"
+                          : r.distanceMeters != null
+                            ? `⚠️ Outside Office (${r.distanceMeters}m)`
+                            : "📍 Unrecorded"}
                       </span>
                     )}
+                    {r.ipAddress && <span style={{ fontSize: 10, color: "var(--text3)" }}>IP: {r.ipAddress}</span>}
                   </div>
                 ),
               },
