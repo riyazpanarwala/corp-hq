@@ -298,7 +298,7 @@ const attendanceService = {
    * @param {object} options - Options containing timezone, optional notes, and optional punchTime
    * @returns {Promise<object>} The updated attendance record with sessions
    */
-  async checkOut(userId, { timezone, notes, punchTime }) {
+  async checkOut(userId, { timezone, notes, punchTime, clientIp }) {
     const checkOutTime = punchTime instanceof Date && !isNaN(punchTime.getTime()) ? punchTime : new Date();
     const today = this.todayDate(timezone, checkOutTime);
     const cfg = await this.getConfig();
@@ -345,7 +345,7 @@ const attendanceService = {
             workMode: record.workMode || "WFO",
             latitude: record.latitude,
             longitude: record.longitude,
-            ipAddress: record.ipAddress,
+            ipAddress: clientIp || record.ipAddress,
             locationVerified: record.locationVerified,
             ipVerified: record.ipVerified,
             distanceMeters: record.distanceMeters,
@@ -365,6 +365,7 @@ const attendanceService = {
           checkOutTz: timezone,
           hoursWorked: sessionHoursRounded,
           notes: notes ?? openSession.notes,
+          ipAddress: openSession.ipAddress || clientIp,
         },
       });
 
@@ -384,6 +385,7 @@ const attendanceService = {
           isHalfDay,
           status: isHalfDay ? "HALF_DAY" : "PRESENT",
           notes: notes ?? record.notes,
+          ipAddress: record.ipAddress || clientIp,
         },
         include: {
           user: { select: { id: true, name: true, department: true } },

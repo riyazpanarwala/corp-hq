@@ -329,8 +329,12 @@ export default function AdminAttendancePage() {
             {r.workMode === "WFH" ? "🏠 WFH" : r.workMode === "ON_DUTY" ? "✈️ On Duty" : "🏢 WFO"}
           </span>
           {r.workMode === "WFO" && (
-            <span style={{ fontSize: 10, color: r.locationVerified ? "var(--success)" : "var(--warning)" }}>
-              {r.locationVerified ? "🟢 Verified" : "⚠️ Out of fence"}{r.distanceMeters != null ? ` (${r.distanceMeters}m)` : ""}
+            <span style={{ fontSize: 10, color: r.locationVerified ? "var(--success)" : r.distanceMeters != null ? "var(--warning)" : "var(--text3)" }}>
+              {r.locationVerified
+                ? "🟢 Verified"
+                : r.distanceMeters != null
+                  ? `⚠️ Out of fence (${r.distanceMeters}m)`
+                  : "📍 Unrecorded"}
             </span>
           )}
           {r.ipAddress && <span style={{ fontSize: 10, color: "var(--text3)" }}>IP: {r.ipAddress}</span>}
