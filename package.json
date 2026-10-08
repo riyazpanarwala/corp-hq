@@ -3,43 +3,43 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev":             "node server.js",
-    "build":           "next build",
-    "start":           "NODE_ENV=production node server.js",
-    "lint":            "next lint",
-    "db:generate":     "prisma generate",
-    "db:migrate":      "prisma migrate dev",
+    "dev": "node server.js",
+    "build": "next build",
+    "start": "NODE_ENV=production node server.js",
+    "lint": "next lint",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
     "db:migrate:prod": "prisma migrate deploy",
-    "db:push":         "prisma db push",
-    "db:seed":         "node prisma/seed.js",
-    "db:studio":       "prisma studio",
-    "db:reset":        "prisma migrate reset --force && npm run db:seed",
-    "db:status":       "prisma migrate status",
-    "setup":           "npm install && npx prisma generate && npm run db:migrate && npm run db:seed",
-    "postinstall":     "prisma generate"
+    "db:push": "prisma db push",
+    "db:seed": "node prisma/seed.js",
+    "db:studio": "prisma studio",
+    "db:reset": "prisma migrate reset --force && npm run db:seed",
+    "db:status": "prisma migrate status",
+    "setup": "npm install && npx prisma generate && npm run db:migrate && npm run db:seed",
+    "postinstall": "prisma generate"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
   },
   "dependencies": {
-    "next":                 "^16.2.3",
-    "react":                "^19.2.5",
-    "react-dom":            "^19.2.5",
-    "@prisma/client":       "^6.6.0",
-    "socket.io":            "^4.8.3",
-    "socket.io-client":     "^4.8.3",
-    "jose":                 "^6.0.0",
-    "bcryptjs":             "^2.4.3",
-    "resend":               "^6.17.2",
-    "zod":                  "^3.25.0",
-    "@tailwindcss/postcss": "^4.2.2",
-    "tailwindcss":          "^4.2.2",
-    "autoprefixer":         "^10.4.21",
-    "postcss":              "^8.4.45"
+    "@prisma/client": "^6.19.3",
+    "@tailwindcss/postcss": "^4.3.3",
+    "autoprefixer": "^10.6.1",
+    "bcryptjs": "^2.4.3",
+    "jose": "^6.2.12",
+    "next": "^16.4.0",
+    "postcss": "^8.5.29",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "resend": "^6.32.1",
+    "socket.io": "^4.8.4",
+    "socket.io-client": "^4.8.4",
+    "tailwindcss": "^4.3.3",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "prisma":             "^6.6.0",
-    "eslint":             "^9.20.0",
-    "eslint-config-next": "^16.2.3"
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.4.0",
+    "prisma": "^6.19.3"
   }
 }
