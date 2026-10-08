@@ -9,7 +9,12 @@ const next             = require("next");
 const dev  = process.env.NODE_ENV !== "production";
 const PORT = parseInt(process.env.PORT || "3000", 10);
 
-// ── 1. Auto-migrate ────────────────────────────────────────────
+/**
+ * Runs automatic database migrations or verifies schema status on server startup.
+ * Skips execution if AUTO_MIGRATE=false or SKIP_AUTO_MIGRATION=true.
+ * On migrate deploy failure in production, verifies that the schema is current via
+ * migrate status before permitting startup to continue; otherwise exits with code 1.
+ */
 function runMigrations() {
   if (process.env.AUTO_MIGRATE === "false" || process.env.SKIP_AUTO_MIGRATION === "true") {
     console.log("⏭️   Skipping Prisma auto-migration on server boot (disabled via environment).");
@@ -44,22 +49,40 @@ function runMigrations() {
         process.exit(1);
       }
     } else {
-      // In production (e.g. Render), pooler saturation or transient connection errors
-      // during container restarts should not bring down the entire web service if the DB is already migrated.
+      // In production (e.g. Render), if migrate deploy fails, verify whether
+      // the schema is actually current before allowing startup to proceed.
       if (process.env.FAIL_ON_MIGRATION_ERROR === "true") {
-        console.error("❌  Migration failed. Exiting.");
+        console.error("❌  Migration failed and FAIL_ON_MIGRATION_ERROR=true. Exiting.");
         process.exit(1);
-      } else {
-        console.warn(
-          "⚠️   Prisma migration check failed on boot (e.g. connection pool limit or transient network error).\n" +
-          "    Continuing server startup. To enforce exit on migration failure, set FAIL_ON_MIGRATION_ERROR=true.",
-        );
+      }
+
+      console.warn("⚠️   prisma migrate deploy failed. Checking if database schema is already current…");
+      try {
+        const statusOutput = execSync("npx prisma migrate status", { encoding: "utf8" });
+        if (statusOutput.includes("Database schema is up to date")) {
+          console.log("✅  Database schema is confirmed up to date. Continuing server startup.");
+          return;
+        }
+        console.error("❌  Database schema is not up to date (pending or unapplied migrations exist). Exiting.");
+        process.exit(1);
+      } catch (statusErr) {
+        const output = `${statusErr.stdout || ""}\n${statusErr.stderr || ""}`;
+        if (output.includes("Database schema is up to date")) {
+          console.log("✅  Database schema is confirmed up to date. Continuing server startup.");
+          return;
+        }
+        console.error("❌  Database schema status check failed or schema is not current. Exiting.");
+        process.exit(1);
       }
     }
   }
 }
 
-// ── 2. Bootstrap ───────────────────────────────────────────────
+/**
+ * Bootstraps the HTTP server, Next.js application, and Socket.io instance.
+ *
+ * @returns {Promise<void>}
+ */
 async function main() {
   runMigrations();
 
