@@ -136,7 +136,7 @@ export default function AdminDashboardPage() {
 
         {/* Today's roster */}
         <Card>
-          <h3 style={{ fontFamily: "Syne, sans-serif", fontWeight: 700, fontSize: 15, marginBottom: 16 }}>Today's Roster</h3>
+          <h3 style={{ fontFamily: "Syne, sans-serif", fontWeight: 700, fontSize: 15, marginBottom: 16 }}>Today&apos;s Roster</h3>
           <div style={{ display: "flex", flexDirection: "column" }}>
             {allUsers.map(emp => {
               const rec = todayAtt.find(a => a.userId === emp.id);
