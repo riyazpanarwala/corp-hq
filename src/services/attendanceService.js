@@ -304,17 +304,56 @@ const attendanceService = {
     const cfg = await this.getConfig();
 
     const { updated, openSessionId } = await db.$transaction(async (tx) => {
-      const record = await tx.attendance.findUnique({
+      let record = await tx.attendance.findUnique({
         where: { userId_date: { userId, date: today } },
         include: {
           sessions: { orderBy: { checkIn: "asc" } },
           user: { select: { id: true, name: true, department: true } },
         },
       });
+
+      // Fallback: If not found by today's date in requested timezone, look for the most recent unclosed attendance record for this user
+      if (!record) {
+        record = await tx.attendance.findFirst({
+          where: {
+            userId,
+            checkOut: null,
+          },
+          orderBy: { checkIn: "desc" },
+          include: {
+            sessions: { orderBy: { checkIn: "asc" } },
+            user: { select: { id: true, name: true, department: true } },
+          },
+        });
+      }
+
       if (!record) throw new ApiError("No check-in found for today", 404);
 
-      const openSession = record.sessions.find(s => !s.checkOut);
-      if (!openSession) throw new ApiError("Already checked out", 409, "DUPLICATE_CHECKOUT");
+      let openSession = record.sessions.find(s => !s.checkOut);
+      if (!openSession) {
+        if (record.checkOut != null) {
+          throw new ApiError("Already checked out", 409, "DUPLICATE_CHECKOUT");
+        }
+
+        // Parent record has no checkOut, but sessions has no open session (e.g. legacy/inconsistent record):
+        // Create an open session using the parent check-in
+        openSession = await tx.attendanceSession.create({
+          data: {
+            attendanceId: record.id,
+            checkIn: record.checkIn,
+            checkInTz: record.checkInTz || timezone,
+            workMode: record.workMode || "WFO",
+            latitude: record.latitude,
+            longitude: record.longitude,
+            ipAddress: record.ipAddress,
+            locationVerified: record.locationVerified,
+            ipVerified: record.ipVerified,
+            distanceMeters: record.distanceMeters,
+            locationName: record.locationName,
+            notes: record.notes,
+          },
+        });
+      }
 
       const sessionHours = Math.max(0, (checkOutTime.getTime() - openSession.checkIn.getTime()) / 3_600_000);
       const sessionHoursRounded = Math.round(sessionHours * 100) / 100;
@@ -428,29 +467,40 @@ const attendanceService = {
       include: { sessions: { orderBy: { checkIn: "asc" } } },
     });
 
-    if (existing && existing.sessions.length > 0) {
-      const existingSession = existing.sessions.find(s => {
-        return Math.abs(s.checkIn.getTime() - checkIn.getTime()) < 60_000;
-      });
+    if (existing) {
+      let targetSession = null;
+      if (existing.sessions.length === 1) {
+        // If there is only one session, the admin is editing this session
+        targetSession = existing.sessions[0];
+      } else if (existing.sessions.length > 1) {
+        // Match by check-in time first (within 1 minute)
+        targetSession = existing.sessions.find(s => {
+          return Math.abs(s.checkIn.getTime() - checkIn.getTime()) < 60_000;
+        });
+        // If not matched and leaving open, prefer the existing open session
+        if (!targetSession && !checkOut) {
+          targetSession = existing.sessions.find(s => !s.checkOut);
+        }
+      }
 
       // Reject edit if it would leave more than one session open
       if (!checkOut) {
-        const otherOpen = existing.sessions.some(s => s.id !== existingSession?.id && !s.checkOut);
+        const otherOpen = existing.sessions.some(s => s.id !== targetSession?.id && !s.checkOut);
         if (otherOpen) {
           throw new ApiError("Cannot leave this session open while another active session exists", 422, "MULTIPLE_OPEN_SESSIONS");
         }
       }
 
-      if (existingSession) {
+      if (targetSession) {
         await client.attendanceSession.update({
-          where: { id: existingSession.id },
+          where: { id: targetSession.id },
           data: {
             checkIn,
             checkOut,
             checkInTz: timezone,
             checkOutTz: checkOut ? timezone : null,
             hoursWorked: manualHours,
-            notes,
+            notes: notes ?? targetSession.notes,
           },
         });
       } else {

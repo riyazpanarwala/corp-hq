@@ -139,10 +139,15 @@ export default function EmployeeAttendancePage() {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     try {
       const res = await authFetch("/api/attendance/checkout", { method: "PATCH", body: JSON.stringify({ timezone: tz }) });
-      if (!res.ok) throw new Error("Attendance request failed");
-      await fetchRecords();
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data?.error || "Attendance request failed", "error");
+      } else {
+        showToast("Checked out 👋", "success");
+        await fetchRecords();
+      }
     } catch (error) {
-      console.error(error);
+      showToast(error.message || "Attendance request failed", "error");
     } finally {
       setChecking(false);
     }
