@@ -147,7 +147,8 @@ export default function EmployeeAttendancePage() {
         await fetchRecords();
       }
     } catch (error) {
-      showToast(error.message || "Attendance request failed", "error");
+      console.error("[Checkout] request failed:", error);
+      showToast("Attendance request failed", "error");
     } finally {
       setChecking(false);
     }

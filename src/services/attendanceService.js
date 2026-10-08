@@ -312,12 +312,17 @@ const attendanceService = {
         },
       });
 
-      // Fallback: If not found by today's date in requested timezone, look for the most recent unclosed attendance record for this user
+      // Across dates/timezones, only close a recent active session (or a sessionless legacy record).
       if (!record) {
+        const cutoff = new Date(checkOutTime.getTime() - cfg.autoCheckoutHours * 3_600_000);
         record = await tx.attendance.findFirst({
           where: {
             userId,
             checkOut: null,
+            OR: [
+              { sessions: { some: { checkOut: null, checkIn: { gte: cutoff, lte: checkOutTime } } } },
+              { sessions: { none: {} }, checkIn: { gte: cutoff, lte: checkOutTime } },
+            ],
           },
           orderBy: { checkIn: "desc" },
           include: {
@@ -327,16 +332,15 @@ const attendanceService = {
         });
       }
 
-      if (!record) throw new ApiError("No check-in found for today", 404);
+      if (!record) throw new ApiError("No active check-in found within the checkout window", 404);
 
       let openSession = record.sessions.find(s => !s.checkOut);
       if (!openSession) {
-        if (record.checkOut != null) {
+        if (record.checkOut != null || record.sessions.length > 0) {
           throw new ApiError("Already checked out", 409, "DUPLICATE_CHECKOUT");
         }
 
-        // Parent record has no checkOut, but sessions has no open session (e.g. legacy/inconsistent record):
-        // Create an open session using the parent check-in
+        // Recover sessionless legacy records without duplicating already recorded sessions.
         openSession = await tx.attendanceSession.create({
           data: {
             attendanceId: record.id,
@@ -471,10 +475,7 @@ const attendanceService = {
 
     if (existing) {
       let targetSession = null;
-      if (existing.sessions.length === 1) {
-        // If there is only one session, the admin is editing this session
-        targetSession = existing.sessions[0];
-      } else if (existing.sessions.length > 1) {
+      if (existing.sessions.length > 0) {
         // Match by check-in time first (within 1 minute)
         targetSession = existing.sessions.find(s => {
           return Math.abs(s.checkIn.getTime() - checkIn.getTime()) < 60_000;
