@@ -2,6 +2,7 @@
 const { db } = require("../lib/db");
 const { ApiError } = require("../lib/auth");
 const { emitToAdmins } = require("../lib/socket");
+const { verifyLocationAndIp } = require("../lib/geoUtils");
 
 /**
  * Converts a date string, time string, and timezone to a UTC Date object.
@@ -130,13 +131,27 @@ const attendanceService = {
    * Enforces atomicity via transaction and partial unique index to block duplicate open sessions.
    *
    * @param {number} userId - The user ID checking in
-   * @param {object} options - Options containing timezone and optional notes
+   * @param {object} options - Options containing timezone, notes, workMode, latitude, longitude, clientIp
    * @returns {Promise<object>} The updated or newly created attendance record with sessions
    */
-  async checkIn(userId, { timezone, notes }) {
+  async checkIn(userId, { timezone, notes, workMode = "WFO", latitude, longitude, clientIp }) {
     const today = this.todayDate(timezone);
     const cfg = await this.getConfig();
     const now = new Date();
+
+    const offices = await db.officeLocation.findMany({ where: { isActive: true } });
+    const verification = verifyLocationAndIp({
+      latitude,
+      longitude,
+      clientIp,
+      workMode,
+      config: cfg,
+      offices,
+    });
+
+    if (!verification.allowed) {
+      throw new ApiError(verification.error, 422, verification.code);
+    }
 
     try {
       const result = await db.$transaction(async (tx) => {
@@ -159,6 +174,14 @@ const attendanceService = {
               attendanceId: existing.id,
               checkIn: now,
               checkInTz: timezone,
+              workMode: verification.workMode,
+              latitude,
+              longitude,
+              ipAddress: clientIp,
+              locationVerified: verification.locationVerified,
+              ipVerified: verification.ipVerified,
+              distanceMeters: verification.distanceMeters,
+              locationName: verification.locationName,
               notes,
             },
           });
@@ -169,6 +192,14 @@ const attendanceService = {
               checkOut: null,
               checkOutTz: null,
               autoCheckedOut: false,
+              workMode: verification.workMode,
+              latitude,
+              longitude,
+              ipAddress: clientIp,
+              locationVerified: verification.locationVerified,
+              ipVerified: verification.ipVerified,
+              distanceMeters: verification.distanceMeters,
+              locationName: verification.locationName,
             },
             include: {
               user: { select: { id: true, name: true, department: true } },
@@ -190,11 +221,27 @@ const attendanceService = {
             isLate,
             lateMinutes,
             status: "PRESENT",
+            workMode: verification.workMode,
+            latitude,
+            longitude,
+            ipAddress: clientIp,
+            locationVerified: verification.locationVerified,
+            ipVerified: verification.ipVerified,
+            distanceMeters: verification.distanceMeters,
+            locationName: verification.locationName,
             notes,
             sessions: {
               create: {
                 checkIn: now,
                 checkInTz: timezone,
+                workMode: verification.workMode,
+                latitude,
+                longitude,
+                ipAddress: clientIp,
+                locationVerified: verification.locationVerified,
+                ipVerified: verification.ipVerified,
+                distanceMeters: verification.distanceMeters,
+                locationName: verification.locationName,
                 notes,
               },
             },
@@ -217,6 +264,10 @@ const attendanceService = {
         lateMinutes: result.record.lateMinutes,
         sessionId: result.newSessionId,
         isResumed: result.isResumed,
+        workMode: verification.workMode,
+        locationVerified: verification.locationVerified,
+        distanceMeters: verification.distanceMeters,
+        locationName: verification.locationName,
       });
 
       return result.record;

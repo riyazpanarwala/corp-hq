@@ -50,6 +50,9 @@ const ResetPasswordSchema = z.object({
 
 const CheckInSchema = z.object({
   timezone: TimezoneSchema.default("UTC"),
+  workMode: z.enum(["WFO", "WFH", "ON_DUTY"]).default("WFO"),
+  latitude: z.number().min(-90).max(90).nullable().optional(),
+  longitude: z.number().min(-180).max(180).nullable().optional(),
   notes: z.string().max(500).optional(),
 });
 
@@ -253,10 +256,24 @@ const MatrixWebhookPayloadSchema = z.union([
   MatrixPunchRawSchema,
 ]);
 
+const OfficeLocationSchema = z.object({
+  name: z.string().min(2, "Office name min 2 chars").max(100),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  radiusMeters: z.coerce.number().int().min(10).max(50000).default(200),
+  allowedIps: z.array(z.string().trim().min(1)).optional().default([]),
+  isActive: z.boolean().optional().default(true),
+});
+
+const UpdateAttendanceConfigSchema = z.object({
+  enforceGeofence: z.boolean().optional(),
+  enforceIp: z.boolean().optional(),
+});
+
 module.exports = {
   LoginSchema, ForgotPasswordSchema, ResetPasswordSchema, CheckInSchema, CheckOutSchema,
   ManualAttendanceSchema, AttendanceFilterSchema, ApplyLeaveSchema, RecordPastLeaveSchema, ReviewLeaveSchema,
   LeaveFilterSchema, CreateUserSchema, UpdateUserHierarchySchema, UpdateUserPasswordSchema, UpdateUserSchema, RefreshSchema,
   CreateHolidaySchema, RegularizationRequestSchema, RegularizationFilterSchema, ReviewRegularizationSchema,
-  MatrixPunchRawSchema, MatrixWebhookPayloadSchema,
+  MatrixPunchRawSchema, MatrixWebhookPayloadSchema, OfficeLocationSchema, UpdateAttendanceConfigSchema,
 };

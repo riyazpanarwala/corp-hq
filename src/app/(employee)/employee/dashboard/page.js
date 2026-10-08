@@ -19,12 +19,31 @@ export default function EmployeeDashboardPage() {
   const [mounted, setMounted] = useState(false);
   const [currentDate, setCurrentDate] = useState("");
   const [greetingText, setGreetingText] = useState("");
+  const [workMode, setWorkMode] = useState("WFO");
+  const [geoStatus, setGeoStatus] = useState("");
 
   const month = new Date().toISOString().slice(0, 7);
 
   const showToast = (msg, type = "info") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
+  };
+
+  const getCoordinates = () => {
+    return new Promise((resolve) => {
+      if (typeof window === "undefined" || !navigator.geolocation) {
+        resolve(null);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        (err) => {
+          console.warn("[Geo] Could not obtain location:", err.message);
+          resolve(null);
+        },
+        { enableHighAccuracy: true, timeout: 7000 }
+      );
+    });
   };
 
   const fetchAll = useCallback(async () => {
@@ -106,15 +125,31 @@ export default function EmployeeDashboardPage() {
   const handleCheckIn = async () => {
     setChecking(true);
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const res = await authFetch("/api/attendance", { method: "POST", body: JSON.stringify({ timezone: tz }) });
-    const data = await res.json();
-    if (res.ok) {
-      showToast(data.isLate ? "Checked in — marked Late ⚠️" : "Checked in successfully ✅", data.isLate ? "warning" : "success");
-      fetchAll();
-    } else {
-      showToast(data.error || "Check-in failed", "error");
+    let coords = null;
+    if (workMode === "WFO") {
+      setGeoStatus("Detecting GPS...");
+      coords = await getCoordinates();
     }
-    setChecking(false);
+    const payload = {
+      timezone: tz,
+      workMode,
+      ...(coords && { latitude: coords.latitude, longitude: coords.longitude }),
+    };
+    try {
+      const res = await authFetch("/api/attendance", { method: "POST", body: JSON.stringify(payload) });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.isLate ? "Checked in — marked Late ⚠️" : "Checked in successfully ✅", data.isLate ? "warning" : "success");
+        fetchAll();
+      } else {
+        showToast(data.error || "Check-in failed", "error");
+      }
+    } catch {
+      showToast("Check-in request failed", "error");
+    } finally {
+      setChecking(false);
+      setGeoStatus("");
+    }
   };
 
   const handleCheckOut = async () => {
@@ -200,8 +235,32 @@ export default function EmployeeDashboardPage() {
           <div>
             <div style={{ fontSize: 12, color: "var(--text2)", marginBottom: 4, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600 }}>Today&apos;s Attendance</div>
             <div style={{ fontFamily: "Syne, sans-serif", fontSize: 22, fontWeight: 800 }}>
-              {isCheckedIn ? "🟢 In Office" : isCheckedOut ? "✅ Checked Out" : "⚪ Not Checked In"}
+              {isCheckedIn ? (todayRec?.workMode === "WFH" ? "🏠 Work From Home" : todayRec?.workMode === "ON_DUTY" ? "✈️ On Duty" : "🟢 In Office") : isCheckedOut ? "✅ Checked Out" : "⚪ Not Checked In"}
             </div>
+            {todayRec && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 5, fontSize: 12 }}>
+                <span style={{
+                  padding: "2px 8px",
+                  borderRadius: "var(--radius-sm)",
+                  background: "var(--surface2)",
+                  fontWeight: 600,
+                  color: "var(--accent)",
+                }}>
+                  {todayRec.workMode === "WFH" ? "🏠 Remote (WFH)" : todayRec.workMode === "ON_DUTY" ? "✈️ On Duty" : "🏢 Office (WFO)"}
+                </span>
+                {todayRec.workMode === "WFO" && (
+                  todayRec.locationVerified ? (
+                    <span style={{ color: "var(--success)", fontWeight: 500 }}>
+                      🟢 Verified ({todayRec.distanceMeters != null ? `${todayRec.distanceMeters}m from ` : ""}{todayRec.locationName || "Office"})
+                    </span>
+                  ) : (
+                    <span style={{ color: "var(--warning)", fontWeight: 500 }}>
+                      ⚠️ Out of geofence {todayRec.distanceMeters != null ? `(${todayRec.distanceMeters}m)` : ""}
+                    </span>
+                  )
+                )}
+              </div>
+            )}
             {todayRec?.isLate && <div style={{ fontSize: 12, color: "var(--warning)", marginTop: 5 }}>⚠️ Arrived {todayRec.lateMinutes} min late</div>}
           </div>
           <LiveClock />
@@ -231,6 +290,7 @@ export default function EmployeeDashboardPage() {
                 <div key={s.id || idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, borderBottom: idx < todayRec.sessions.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none", paddingBottom: idx < todayRec.sessions.length - 1 ? 6 : 0 }}>
                   <span>
                     <strong>Session #{idx + 1}:</strong> {formatTime(s.checkIn, s.checkInTz)} – {s.checkOut ? formatTime(s.checkOut, s.checkOutTz || s.checkInTz) : "Active 🟢"}
+                    <span style={{ fontSize: 11, color: "var(--text3)", marginLeft: 6 }}>({s.workMode || "WFO"})</span>
                   </span>
                   <span style={{ color: s.checkOut ? "var(--text2)" : "var(--success)", fontWeight: 600 }}>
                     {s.checkOut ? formatHours(s.hoursWorked) : "In Progress"}
@@ -242,6 +302,36 @@ export default function EmployeeDashboardPage() {
         )}
 
         <div style={{ marginTop: 16 }}>
+          {!loading && (!todayRec || isCheckedOut) && (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+              <span style={{ fontSize: 12, color: "var(--text3)", fontWeight: 600 }}>Work Mode:</span>
+              {[
+                { id: "WFO", label: "🏢 Office (WFO)" },
+                { id: "WFH", label: "🏠 Remote (WFH)" },
+                { id: "ON_DUTY", label: "✈️ On Duty (OD)" },
+              ].map(m => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setWorkMode(m.id)}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: "var(--radius-sm)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    border: workMode === m.id ? "1px solid var(--accent)" : "1px solid var(--border)",
+                    background: workMode === m.id ? "rgba(79,142,247,0.18)" : "var(--surface2)",
+                    color: workMode === m.id ? "var(--accent)" : "var(--text2)",
+                  }}
+                >
+                  {m.label}
+                </button>
+              ))}
+              {geoStatus && <span style={{ fontSize: 11, color: "var(--text3)" }}>{geoStatus}</span>}
+            </div>
+          )}
+
           {!loading && !todayRec && (
             <Btn onClick={handleCheckIn} loading={checking} disabled={checking} variant="success" size="lg" style={{ width: "100%", justifyContent: "center" }}>✅ Check In</Btn>
           )}

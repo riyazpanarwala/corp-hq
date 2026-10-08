@@ -65,7 +65,120 @@ export default function AdminAttendancePage() {
   const [timeForm,  setTimeForm]  = useState(() => defaultTimeForm(todayStr()));
   const [timeError, setTimeError] = useState("");
   const [savingTime, setSavingTime] = useState(false);
+  const [showOfficeModal, setShowOfficeModal] = useState(false);
+  const [offices, setOffices] = useState([]);
+  const [loadingOffices, setLoadingOffices] = useState(false);
+  const [attConfig, setAttConfig] = useState(null);
+  const [newOfficeForm, setNewOfficeForm] = useState({ name: "", latitude: "", longitude: "", radiusMeters: 200, allowedIps: "" });
+  const [savingOffice, setSavingOffice] = useState(false);
+  const [officeError, setOfficeError] = useState("");
   const { toasts, toast, remove } = useToast();
+
+  const fetchOfficesAndConfig = useCallback(async () => {
+    setLoadingOffices(true);
+    try {
+      const [offRes, cfgRes] = await Promise.all([
+        authFetch("/api/offices"),
+        authFetch("/api/attendance/config"),
+      ]);
+      const [offData, cfgData] = await Promise.all([offRes.json(), cfgRes.json()]);
+      setOffices(offData.offices || []);
+      setAttConfig(cfgData.config || null);
+    } catch {
+      toast("Could not load office locations", "error");
+    } finally {
+      setLoadingOffices(false);
+    }
+  }, [authFetch, toast]);
+
+  const detectCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      toast("Geolocation not supported by this browser", "error");
+      return;
+    }
+    toast("Acquiring GPS coordinates...", "info");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setNewOfficeForm(prev => ({
+          ...prev,
+          latitude: String(pos.coords.latitude.toFixed(6)),
+          longitude: String(pos.coords.longitude.toFixed(6)),
+        }));
+        toast("Current coordinates applied!", "success");
+      },
+      (err) => toast(`Location error: ${err.message}`, "error"),
+      { enableHighAccuracy: true }
+    );
+  };
+
+  const saveOffice = async (e) => {
+    e.preventDefault();
+    setOfficeError("");
+    const lat = parseFloat(newOfficeForm.latitude);
+    const lng = parseFloat(newOfficeForm.longitude);
+    const radius = parseInt(newOfficeForm.radiusMeters, 10);
+    if (!newOfficeForm.name.trim()) return setOfficeError("Office name is required.");
+    if (isNaN(lat) || isNaN(lng)) return setOfficeError("Valid Latitude and Longitude are required.");
+
+    const allowedIps = newOfficeForm.allowedIps
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    setSavingOffice(true);
+    try {
+      const res = await authFetch("/api/offices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newOfficeForm.name.trim(),
+          latitude: lat,
+          longitude: lng,
+          radiusMeters: radius || 200,
+          allowedIps,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create office");
+      toast(`Office location "${newOfficeForm.name}" created!`, "success");
+      setNewOfficeForm({ name: "", latitude: "", longitude: "", radiusMeters: 200, allowedIps: "" });
+      fetchOfficesAndConfig();
+    } catch (err) {
+      setOfficeError(err.message || "Could not save office");
+    } finally {
+      setSavingOffice(false);
+    }
+  };
+
+  const togglePolicy = async (field, value) => {
+    try {
+      const res = await authFetch("/api/attendance/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: value }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setAttConfig(data.config);
+        toast("Enforcement policy updated.", "success");
+      }
+    } catch {
+      toast("Failed to update policy.", "error");
+    }
+  };
+
+  const deleteOffice = async (id, name) => {
+    if (!confirm(`Delete office "${name}"?`)) return;
+    try {
+      const res = await authFetch(`/api/offices/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        toast(`Office "${name}" deleted.`, "info");
+        fetchOfficesAndConfig();
+      }
+    } catch {
+      toast("Could not delete office.", "error");
+    }
+  };
   const [filters, setFilters] = useState({
     date:   todayStr(),
     userId: "all",
@@ -203,6 +316,22 @@ export default function AdminAttendancePage() {
       ),
     },
     { key: "date",     label: "Date",      render: r => formatDate(r.date) },
+    {
+      key: "workMode", label: "Mode & Location",
+      render: r => (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
+          <span style={{ fontWeight: 600 }}>
+            {r.workMode === "WFH" ? "🏠 WFH" : r.workMode === "ON_DUTY" ? "✈️ On Duty" : "🏢 WFO"}
+          </span>
+          {r.workMode === "WFO" && (
+            <span style={{ fontSize: 10, color: r.locationVerified ? "var(--success)" : "var(--warning)" }}>
+              {r.locationVerified ? "🟢 Verified" : "⚠️ Out of fence"}{r.distanceMeters != null ? ` (${r.distanceMeters}m)` : ""}
+            </span>
+          )}
+          {r.ipAddress && <span style={{ fontSize: 10, color: "var(--text3)" }}>IP: {r.ipAddress}</span>}
+        </div>
+      ),
+    },
     { key: "checkIn",  label: "Check In",  render: r => formatTime(r.checkIn, r.checkInTz) },
     { key: "checkOut", label: "Check Out", render: r => formatTime(r.checkOut, r.checkOutTz || r.checkInTz) },
     {
@@ -242,7 +371,14 @@ export default function AdminAttendancePage() {
         subtitle={`${total} records`}
         action={
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {isAdmin && <Btn onClick={openAddForm} size="sm">+ Add Time</Btn>}
+            {isAdmin && (
+              <>
+                <Btn onClick={() => { fetchOfficesAndConfig(); setShowOfficeModal(true); }} variant="secondary" size="sm">
+                  📍 Office Geofences
+                </Btn>
+                <Btn onClick={openAddForm} size="sm">+ Add Time</Btn>
+              </>
+            )}
             <Btn onClick={handleExport} variant="secondary" size="sm">Export CSV</Btn>
           </div>
         }
@@ -375,6 +511,143 @@ export default function AdminAttendancePage() {
               </Btn>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {showOfficeModal && (
+        <Modal title="📍 Office Locations & Geofence Policy" onClose={() => setShowOfficeModal(false)} width={640}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            {/* Policy Enforcement Card */}
+            <div style={{ background: "var(--surface2)", borderRadius: "var(--radius-md)", padding: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Enforcement Policies</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(attConfig?.enforceGeofence)}
+                    onChange={e => togglePolicy("enforceGeofence", e.target.checked)}
+                  />
+                  <span>
+                    <strong>Strict Geofence Enforcement:</strong> Block On-Site (WFO) check-ins if employee is outside the office radius.
+                  </span>
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(attConfig?.enforceIp)}
+                    onChange={e => togglePolicy("enforceIp", e.target.checked)}
+                  />
+                  <span>
+                    <strong>Office Wi-Fi IP Enforcement:</strong> Block On-Site check-ins if not connected to an authorized office IP address.
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Existing Offices List */}
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Configured Offices ({offices.length})</div>
+              {loadingOffices ? (
+                <Skeleton height={80} />
+              ) : offices.length === 0 ? (
+                <div style={{ fontSize: 13, color: "var(--text3)", fontStyle: "italic" }}>No office locations configured yet.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 180, overflowY: "auto" }}>
+                  {offices.map(off => (
+                    <div key={off.id} style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      background: "var(--surface2)", padding: "10px 14px", borderRadius: "var(--radius-sm)", fontSize: 13,
+                    }}>
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{off.name}</div>
+                        <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
+                          Coordinates: {off.latitude}, {off.longitude} · Radius: {off.radiusMeters}m
+                          {off.allowedIps?.length > 0 && ` · Allowed IPs: ${off.allowedIps.join(", ")}`}
+                        </div>
+                      </div>
+                      <Btn size="xs" variant="danger" onClick={() => deleteOffice(off.id, off.name)}>Delete</Btn>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Add New Office Form */}
+            <form onSubmit={saveOffice} style={{ borderTop: "1px solid var(--border)", paddingTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>+ Add New Office Location</div>
+              <Field label="Office / Branch Name">
+                <input
+                  value={newOfficeForm.name}
+                  onChange={e => setNewOfficeForm(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="e.g. Headquarters, Bangalore Tech Park"
+                />
+              </Field>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <Field label="Latitude">
+                  <input
+                    value={newOfficeForm.latitude}
+                    onChange={e => setNewOfficeForm(prev => ({ ...prev, latitude: e.target.value }))}
+                    placeholder="e.g. 12.971598"
+                  />
+                </Field>
+                <Field label="Longitude">
+                  <input
+                    value={newOfficeForm.longitude}
+                    onChange={e => setNewOfficeForm(prev => ({ ...prev, longitude: e.target.value }))}
+                    placeholder="e.g. 77.594562"
+                  />
+                </Field>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={detectCurrentLocation}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--accent)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                  }}
+                >
+                  📍 Use My Current Location
+                </button>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
+                <Field label="Radius (Meters)" hint="Allowed distance">
+                  <input
+                    type="number"
+                    value={newOfficeForm.radiusMeters}
+                    onChange={e => setNewOfficeForm(prev => ({ ...prev, radiusMeters: e.target.value }))}
+                    placeholder="200"
+                  />
+                </Field>
+                <Field label="Authorized Office IPs" hint="Comma-separated public IPs">
+                  <input
+                    value={newOfficeForm.allowedIps}
+                    onChange={e => setNewOfficeForm(prev => ({ ...prev, allowedIps: e.target.value }))}
+                    placeholder="e.g. 203.0.113.195, 127.0.0.1"
+                  />
+                </Field>
+              </div>
+
+              {officeError && (
+                <div style={{ color: "var(--danger)", fontSize: 13, fontWeight: 600 }}>
+                  {officeError}
+                </div>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 4 }}>
+                <Btn variant="ghost" onClick={() => setShowOfficeModal(false)} disabled={savingOffice}>Close</Btn>
+                <Btn type="submit" loading={savingOffice}>Save Office</Btn>
+              </div>
+            </form>
+          </div>
         </Modal>
       )}
 
