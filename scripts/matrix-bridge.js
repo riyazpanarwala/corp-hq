@@ -26,7 +26,7 @@ const path = require("path");
 const CORPHQ_URL = process.env.CORPHQ_URL || "http://localhost:3000";
 const MATRIX_WEBHOOK_SECRET = process.env.MATRIX_WEBHOOK_SECRET;
 
-if (!MATRIX_WEBHOOK_SECRET) {
+if (require.main === module && !MATRIX_WEBHOOK_SECRET) {
   console.error("[MatrixBridge] Error: MATRIX_WEBHOOK_SECRET environment variable is required.");
   process.exit(1);
 }
@@ -53,7 +53,9 @@ async function sendPunchesToCorpHQ(punches) {
     });
 
     const data = await res.json();
-    if (!res.ok) {
+    const allAccepted = data.success === true && Array.isArray(data.results)
+      && data.results.length === payload.length && data.results.every(result => result.success === true);
+    if (!res.ok || !allAccepted) {
       console.error(`[MatrixBridge] Webhook failed (${res.status}):`, data.error || data);
       return false;
     } else {
@@ -183,27 +185,31 @@ const modeArg = args.find(a => a.startsWith("--mode="))?.split("=")[1] || "help"
 const pathArg = args.find(a => a.startsWith("--path="))?.split("=")[1];
 const userArg = args.find(a => a.startsWith("--user="))?.split("=")[1] || "10042";
 
-if (modeArg === "test") {
-  runTestPunch(userArg);
-} else if (modeArg === "csv") {
-  if (!pathArg) {
-    console.error("❌ Please provide file path using --path=C:\\path\\to\\punches.csv");
-    process.exit(1);
+if (require.main === module) {
+  if (modeArg === "test") {
+    runTestPunch(userArg);
+  } else if (modeArg === "csv") {
+    if (!pathArg) {
+      console.error("❌ Please provide file path using --path=C:\\path\\to\\punches.csv");
+      process.exit(1);
+    }
+    runCsvWatcher(pathArg);
+  } else {
+    console.log(`
+  Matrix COSEC -> CorpHQ Integration Bridge
+  -----------------------------------------
+  Options:
+    --mode=test --user=10042
+        Send a single test punch to verify webhook connectivity.
+
+    --mode=csv --path="C:\\MatrixExport\\punches.csv"
+        Poll Matrix auto-exported CSV file and forward new punches.
+
+  Configuration (Environment Variables):
+    CORPHQ_URL            Default: http://localhost:3000
+    MATRIX_WEBHOOK_SECRET Required shared webhook secret
+  `);
   }
-  runCsvWatcher(pathArg);
-} else {
-  console.log(`
-Matrix COSEC -> CorpHQ Integration Bridge
------------------------------------------
-Options:
-  --mode=test --user=10042
-      Send a single test punch to verify webhook connectivity.
-
-  --mode=csv --path="C:\\MatrixExport\\punches.csv"
-      Poll Matrix auto-exported CSV file and forward new punches.
-
-Configuration (Environment Variables):
-  CORPHQ_URL            Default: http://localhost:3000
-  MATRIX_WEBHOOK_SECRET Default: matrix_shared_secret_123
-`);
 }
+
+module.exports = { sendPunchesToCorpHQ, parseCsvLine, runCsvWatcher };

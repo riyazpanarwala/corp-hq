@@ -183,6 +183,8 @@ The seed adds four employees, current-year leave balances, about 60 days of samp
 - Automatic session tracking: Entry punches create a check-in session; exit punches close the active session.
 - Built-in deduplication (60s debounce window) ensures accidental double finger scans are only processed once.
 - Supports both direct Web API push from Matrix and the local bridge script (`scripts/matrix-bridge.js`) for COSEC CENTRA without the Web API license.
+- Set `MATRIX_TIMEZONE` to the scanner's IANA timezone (for example `Asia/Kolkata`) for timestamps without an offset. If omitted, the mapped employee's timezone is used, or UTC for unmapped IDs. ISO timestamps with offsets and Unix timestamps keep their absolute time.
+- Punch logs and attendance commit together. Failed punches can be retried; completed deliveries are ignored. Batch failures return HTTP 503 (invalid payload results return 422), and the bridge retains the batch for retry. Later punches for an employee whose earlier punch failed are deferred to preserve order.
 
 ### Geo-Location & IP Verification
 
@@ -191,6 +193,7 @@ The seed adds four employees, current-year leave balances, about 60 days of samp
 - Check-in calculates Great-Circle distance to nearest office via Haversine formula and validates client IP.
 - Admin can enable strict geofence or IP enforcement to restrict on-site check-ins within office premises.
 - All attendance records tag the work mode, verification state, detected distance, and IP address.
+- IP headers are ignored by default. Set `TRUST_PROXY=true` only when a trusted ingress overwrites the selected header and prevents direct access to the application. `CLIENT_IP_HEADER` defaults to `x-forwarded-for`; `PROXY_HOPS` counts trusted hops from its right. Use `x-real-ip` or `cf-connecting-ip` only when that header is overwritten by your trusted ingress. Without this configuration, the IP remains unknown and enforced IP checks reject the request.
 
 ## Useful commands
 

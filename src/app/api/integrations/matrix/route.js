@@ -67,7 +67,8 @@ export async function POST(request) {
     }
 
     const summary = await matrixBiometricService.processPayload(payloadToProcess);
-    return Response.json(summary, { status: 200 });
+    const status = summary.success ? 200 : summary.results.some(r => r.status === "ERROR") ? 503 : 422;
+    return Response.json(summary, { status });
   } catch (err) {
     console.error("[MatrixWebhook] Unhandled error:", err);
     return Response.json(
