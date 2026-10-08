@@ -39,7 +39,9 @@ export async function POST(request) {
     } else {
       const body = CheckInSchema.parse(json);
       const clientIp = extractClientIp(request);
-      record = await attendanceService.checkIn(user.id, { ...body, clientIp });
+      const attendanceBody = { ...body };
+      delete attendanceBody.trustedSource;
+      record = await attendanceService.checkIn(user.id, { ...attendanceBody, clientIp });
     }
 
     return Response.json(record, { status: 201 });

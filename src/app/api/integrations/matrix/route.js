@@ -3,10 +3,6 @@ import { matrixBiometricService } from "@/services/matrixBiometricService";
 import { MatrixWebhookPayloadSchema } from "@/lib/validations";
 
 function extractSecret(request, body) {
-  const url = new URL(request.url);
-  const querySecret = url.searchParams.get("secret");
-  if (querySecret) return querySecret;
-
   const authHeader = request.headers.get("authorization");
   if (authHeader?.startsWith("Bearer ")) {
     return authHeader.slice(7).trim();
@@ -55,7 +51,20 @@ export async function POST(request) {
 
     // Validate payload shape
     const parseResult = MatrixWebhookPayloadSchema.safeParse(body);
-    const payloadToProcess = parseResult.success ? parseResult.data : body;
+    if (!parseResult.success) {
+      return Response.json({ error: "Invalid payload", issues: parseResult.error.issues }, { status: 400 });
+    }
+
+    const payloadToProcess = parseResult.data;
+    // Strip secret before processing and storing in rawPayload
+    if (payloadToProcess && typeof payloadToProcess === "object") {
+      delete payloadToProcess.secret;
+      if (Array.isArray(payloadToProcess)) {
+        payloadToProcess.forEach(item => { if (item) delete item.secret; });
+      } else if (Array.isArray(payloadToProcess.events)) {
+        payloadToProcess.events.forEach(item => { if (item) delete item.secret; });
+      }
+    }
 
     const summary = await matrixBiometricService.processPayload(payloadToProcess);
     return Response.json(summary, { status: 200 });

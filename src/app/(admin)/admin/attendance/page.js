@@ -161,6 +161,8 @@ export default function AdminAttendancePage() {
       if (res.ok) {
         setAttConfig(data.config);
         toast("Enforcement policy updated.", "success");
+      } else {
+        toast(data.error || "Failed to update policy.", "error");
       }
     } catch {
       toast("Failed to update policy.", "error");
@@ -171,9 +173,12 @@ export default function AdminAttendancePage() {
     if (!confirm(`Delete office "${name}"?`)) return;
     try {
       const res = await authFetch(`/api/offices/${id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         toast(`Office "${name}" deleted.`, "info");
         fetchOfficesAndConfig();
+      } else {
+        toast(data.error || "Could not delete office.", "error");
       }
     } catch {
       toast("Could not delete office.", "error");

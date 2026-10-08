@@ -77,10 +77,12 @@ const attendanceService = {
    * Returns today's calendar date at UTC midnight for the given timezone.
    *
    * @param {string} [timeZone="UTC"] - IANA timezone identifier
-   * @returns {Date} UTC midnight Date for today
+   * @param {Date} [refDate=new Date()] - Reference date timestamp
+   * @returns {Date} UTC midnight Date for the reference day
    */
-  todayDate(timeZone = "UTC") {
-    return workDateFromString(dateStringInZone(new Date(), timeZone));
+  todayDate(timeZone = "UTC", refDate = new Date()) {
+    const validDate = refDate instanceof Date && !isNaN(refDate.getTime()) ? refDate : new Date();
+    return workDateFromString(dateStringInZone(validDate, timeZone));
   },
 
   /**
@@ -131,23 +133,32 @@ const attendanceService = {
    * Enforces atomicity via transaction and partial unique index to block duplicate open sessions.
    *
    * @param {number} userId - The user ID checking in
-   * @param {object} options - Options containing timezone, notes, workMode, latitude, longitude, clientIp
+   * @param {object} options - Options containing timezone, notes, workMode, latitude, longitude, clientIp, punchTime, trustedSource
    * @returns {Promise<object>} The updated or newly created attendance record with sessions
    */
-  async checkIn(userId, { timezone, notes, workMode = "WFO", latitude, longitude, clientIp }) {
-    const today = this.todayDate(timezone);
+  async checkIn(userId, { timezone, notes, workMode = "WFO", latitude, longitude, clientIp, punchTime, trustedSource }) {
+    const checkInTime = punchTime instanceof Date && !isNaN(punchTime.getTime()) ? punchTime : new Date();
+    const today = this.todayDate(timezone, checkInTime);
     const cfg = await this.getConfig();
-    const now = new Date();
 
     const offices = await db.officeLocation.findMany({ where: { isActive: true } });
-    const verification = verifyLocationAndIp({
-      latitude,
-      longitude,
-      clientIp,
-      workMode,
-      config: cfg,
-      offices,
-    });
+    const verification = trustedSource === "MATRIX"
+      ? {
+          allowed: true,
+          workMode: "WFO",
+          locationVerified: false,
+          ipVerified: false,
+          distanceMeters: null,
+          locationName: "Matrix Scanner",
+        }
+      : verifyLocationAndIp({
+          latitude,
+          longitude,
+          clientIp,
+          workMode,
+          config: cfg,
+          offices,
+        });
 
     if (!verification.allowed) {
       throw new ApiError(verification.error, 422, verification.code);
@@ -172,7 +183,7 @@ const attendanceService = {
           const newSession = await tx.attendanceSession.create({
             data: {
               attendanceId: existing.id,
-              checkIn: now,
+              checkIn: checkInTime,
               checkInTz: timezone,
               workMode: verification.workMode,
               latitude,
@@ -210,13 +221,13 @@ const attendanceService = {
           return { record: updatedRecord, newSessionId: newSession.id, isResumed: true };
         }
 
-        const { isLate, lateMinutes } = this.computeLate(now, cfg, timezone);
+        const { isLate, lateMinutes } = this.computeLate(checkInTime, cfg, timezone);
 
         const record = await tx.attendance.create({
           data: {
             userId,
             date: today,
-            checkIn: now,
+            checkIn: checkInTime,
             checkInTz: timezone,
             isLate,
             lateMinutes,
@@ -232,7 +243,7 @@ const attendanceService = {
             notes,
             sessions: {
               create: {
-                checkIn: now,
+                checkIn: checkInTime,
                 checkInTz: timezone,
                 workMode: verification.workMode,
                 latitude,
@@ -259,7 +270,7 @@ const attendanceService = {
         userId,
         userName: result.record.user.name,
         department: result.record.user.department,
-        checkIn: now,
+        checkIn: checkInTime,
         isLate: result.record.isLate,
         lateMinutes: result.record.lateMinutes,
         sessionId: result.newSessionId,
@@ -284,13 +295,13 @@ const attendanceService = {
    * Closes the active open session, recalculates total cumulative hours, and updates parent status.
    *
    * @param {number} userId - The user ID checking out
-   * @param {object} options - Options containing timezone and optional notes
+   * @param {object} options - Options containing timezone, optional notes, and optional punchTime
    * @returns {Promise<object>} The updated attendance record with sessions
    */
-  async checkOut(userId, { timezone, notes }) {
-    const today = this.todayDate(timezone);
+  async checkOut(userId, { timezone, notes, punchTime }) {
+    const checkOutTime = punchTime instanceof Date && !isNaN(punchTime.getTime()) ? punchTime : new Date();
+    const today = this.todayDate(timezone, checkOutTime);
     const cfg = await this.getConfig();
-    const now = new Date();
 
     const { updated, openSessionId } = await db.$transaction(async (tx) => {
       const record = await tx.attendance.findUnique({
@@ -305,13 +316,13 @@ const attendanceService = {
       const openSession = record.sessions.find(s => !s.checkOut);
       if (!openSession) throw new ApiError("Already checked out", 409, "DUPLICATE_CHECKOUT");
 
-      const sessionHours = (now.getTime() - openSession.checkIn.getTime()) / 3_600_000;
+      const sessionHours = Math.max(0, (checkOutTime.getTime() - openSession.checkIn.getTime()) / 3_600_000);
       const sessionHoursRounded = Math.round(sessionHours * 100) / 100;
 
       await tx.attendanceSession.update({
         where: { id: openSession.id },
         data: {
-          checkOut: now,
+          checkOut: checkOutTime,
           checkOutTz: timezone,
           hoursWorked: sessionHoursRounded,
           notes: notes ?? openSession.notes,
@@ -328,7 +339,7 @@ const attendanceService = {
       const updatedRecord = await tx.attendance.update({
         where: { id: record.id },
         data: {
-          checkOut: now,
+          checkOut: checkOutTime,
           checkOutTz: timezone,
           hoursWorked: roundedTotalHours,
           isHalfDay,
@@ -346,7 +357,7 @@ const attendanceService = {
 
     emitToAdmins("attendance:checkout", {
       userId,
-      checkOut: now,
+      checkOut: checkOutTime,
       hoursWorked: updated.hoursWorked,
       isHalfDay: updated.isHalfDay,
       sessionId: openSessionId,

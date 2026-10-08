@@ -40,6 +40,4 @@ CREATE TABLE "office_locations" (
     CONSTRAINT "office_locations_pkey" PRIMARY KEY ("id")
 );
 
--- Seed default headquarters location if no office location exists
-INSERT INTO "office_locations" ("name", "latitude", "longitude", "radius_meters", "allowed_ips", "is_active", "updated_at")
-VALUES ('Headquarters', 12.9716, 77.5946, 500, ARRAY['127.0.0.1', '::1']::TEXT[], true, CURRENT_TIMESTAMP);
+-- Office locations table created without sample seed

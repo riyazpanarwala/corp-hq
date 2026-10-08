@@ -3,12 +3,27 @@ import { db } from "@/lib/db";
 import { getCurrentUser, handleApiError, ApiError } from "@/lib/auth";
 import { OfficeLocationSchema } from "@/lib/validations";
 
-// GET /api/offices -- list active offices (accessible to all authenticated users)
+// GET /api/offices -- list offices (admins see all with allowedIps; non-admins see only active without allowedIps)
 export async function GET(request) {
   try {
-    getCurrentUser(request); // Requires authenticated user
+    const user = getCurrentUser(request);
+    const isAdmin = user.role === "ADMIN";
+
     const offices = await db.officeLocation.findMany({
+      where: isAdmin ? undefined : { isActive: true },
       orderBy: { name: "asc" },
+      select: isAdmin
+        ? undefined
+        : {
+            id: true,
+            name: true,
+            latitude: true,
+            longitude: true,
+            radiusMeters: true,
+            isActive: true,
+            createdAt: true,
+            updatedAt: true,
+          },
     });
     return Response.json({ offices });
   } catch (err) {

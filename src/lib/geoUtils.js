@@ -30,21 +30,37 @@ function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
 }
 
 /**
- * Extracts the real client IP address from request headers.
- * Normalizes IPv6 loopback (::1) and IPv6-mapped IPv4 addresses (::ffff:192.168.1.1).
+ * Extracts the client IP address from request headers or socket info.
+ * Avoids spoofable leftmost entry by selecting from rightmost entry based on trusted hop count.
+ * Returns null if no valid IP can be extracted, preventing fallback to allowlisted loopback.
  *
  * @param {Request} request Next.js / standard Fetch Request
- * @returns {string} Normalized IP address
+ * @returns {string|null} Normalized IP address or null
  */
 function extractClientIp(request) {
-  if (!request || !request.headers) return "127.0.0.1";
+  if (!request || !request.headers) return null;
 
-  const forwarded = request.headers.get("x-forwarded-for");
-  let ip = forwarded ? forwarded.split(",")[0].trim() : null;
+  // Only trust X-Forwarded-For if explicitly enabled in environment (default: false in dev)
+  const trustProxy = process.env.TRUST_PROXY === "true" || process.env.NODE_ENV === "production";
+  let ip = null;
+
+  if (trustProxy) {
+    const forwarded = request.headers.get("x-forwarded-for");
+    if (forwarded) {
+      const parts = forwarded.split(",").map(p => p.trim()).filter(Boolean);
+      const hopCount = Math.max(1, parseInt(process.env.PROXY_HOPS || "1", 10));
+      // Rightmost hop from trusted reverse proxy
+      const targetIdx = Math.max(0, parts.length - hopCount);
+      ip = parts[targetIdx] || parts[parts.length - 1];
+    }
+  }
 
   if (!ip) {
-    ip = request.headers.get("x-real-ip") || "127.0.0.1";
+    // If not using proxy or no XFF, check for direct remote address or standard header
+    ip = request.headers.get("x-real-ip");
   }
+
+  if (!ip) return null;
 
   // Strip IPv6-mapped IPv4 prefix
   if (ip.startsWith("::ffff:")) {
@@ -84,9 +100,9 @@ function matchIp(clientIp, allowedList = []) {
       return true;
     }
 
-    // Wildcard prefix match: e.g. "192.168.1.*"
+    // Wildcard prefix match: e.g. "192.168.1.*" -> retain trailing dot so 192.168.10.* doesn't match
     if (norm.endsWith(".*")) {
-      const prefix = norm.slice(0, -2);
+      const prefix = norm.slice(0, -1); // keep trailing "."
       if (normalizedClient.startsWith(prefix)) return true;
     }
   }
@@ -100,7 +116,7 @@ function matchIp(clientIp, allowedList = []) {
  * @param {object} params
  * @param {number|null} params.latitude
  * @param {number|null} params.longitude
- * @param {string} params.clientIp
+ * @param {string|null} params.clientIp
  * @param {string} [params.workMode="WFO"] WFO | WFH | ON_DUTY
  * @param {object} [params.config={}] AttendanceConfig object
  * @param {Array} [params.offices=[]] Array of active OfficeLocation records
@@ -117,6 +133,7 @@ function verifyLocationAndIp({
   const normMode = (workMode || "WFO").toUpperCase();
 
   // 1. Remote or On-Duty modes:
+  // Allowed without office restrictions, but location/IP are not marked verified as they are outside office perimeter
   if (normMode === "WFH" || normMode === "ON_DUTY") {
     let nearestOffice = null;
     let distanceMeters = null;
@@ -136,8 +153,8 @@ function verifyLocationAndIp({
     return {
       allowed: true,
       workMode: normMode,
-      locationVerified: true,
-      ipVerified: true,
+      locationVerified: false,
+      ipVerified: false,
       distanceMeters,
       locationName: normMode === "WFH" ? "Remote (Work From Home)" : "On Duty / Client Site",
       nearestOffice: nearestOffice?.name || null,

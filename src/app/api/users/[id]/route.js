@@ -97,6 +97,9 @@ export async function PATCH(request, { params }) {
 
     return Response.json(updated);
   } catch (err) {
+    if (err?.code === "P2002" && err.meta?.target?.includes("biometric_id")) {
+      return Response.json({ error: "Biometric ID already assigned to another employee" }, { status: 422 });
+    }
     if (err?.errors) return Response.json({ error: err.errors[0].message }, { status: 422 });
     return handleApiError(err);
   }

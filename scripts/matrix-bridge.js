@@ -24,14 +24,21 @@ const fs = require("fs");
 const path = require("path");
 
 const CORPHQ_URL = process.env.CORPHQ_URL || "http://localhost:3000";
-const MATRIX_WEBHOOK_SECRET = process.env.MATRIX_WEBHOOK_SECRET || "matrix_shared_secret_123";
+const MATRIX_WEBHOOK_SECRET = process.env.MATRIX_WEBHOOK_SECRET;
+
+if (!MATRIX_WEBHOOK_SECRET) {
+  console.error("[MatrixBridge] Error: MATRIX_WEBHOOK_SECRET environment variable is required.");
+  process.exit(1);
+}
+
 const WEBHOOK_ENDPOINT = `${CORPHQ_URL.replace(/\/$/, "")}/api/integrations/matrix`;
 
 /**
  * Sends one or more punch events to CorpHQ's Webhook.
+ * Returns true if the webhook accepted the payload, false otherwise.
  */
 async function sendPunchesToCorpHQ(punches) {
-  if (!punches || (Array.isArray(punches) && punches.length === 0)) return;
+  if (!punches || (Array.isArray(punches) && punches.length === 0)) return false;
 
   const payload = Array.isArray(punches) ? punches : [punches];
 
@@ -48,15 +55,18 @@ async function sendPunchesToCorpHQ(punches) {
     const data = await res.json();
     if (!res.ok) {
       console.error(`[MatrixBridge] Webhook failed (${res.status}):`, data.error || data);
+      return false;
     } else {
       console.log(`[MatrixBridge] Synced ${payload.length} punch(es) -> CorpHQ:`, {
         processed: data.processed,
         duplicates: data.duplicates,
         unmapped: data.unmapped,
       });
+      return true;
     }
   } catch (err) {
     console.error(`[MatrixBridge] Network error reaching CorpHQ at ${WEBHOOK_ENDPOINT}:`, err.message);
+    return false;
   }
 }
 
@@ -108,27 +118,45 @@ function runCsvWatcher(filePath, intervalSeconds = 10) {
     console.log(`[MatrixBridge] Existing file has ${lastLineCount} lines. Starting tail sync...`);
   }
 
-  setInterval(() => {
-    if (!fs.existsSync(filePath)) return;
+  let isSyncing = false;
+
+  setInterval(async () => {
+    if (!fs.existsSync(filePath) || isSyncing) return;
 
     try {
       const content = fs.readFileSync(filePath, "utf8").trim();
-      if (!content) return;
+      if (!content) {
+        lastLineCount = 0;
+        return;
+      }
 
       const lines = content.split("\n");
+      // If file was truncated or rotated to a smaller length, reset offset
+      if (lines.length < lastLineCount) {
+        console.log(`[MatrixBridge] File size decreased (${lines.length} < ${lastLineCount}). Resetting line pointer.`);
+        lastLineCount = 0;
+      }
+
       if (lines.length > lastLineCount) {
         const newLines = lines.slice(lastLineCount);
-        lastLineCount = lines.length;
-
         const punches = newLines
           .map(l => parseCsvLine(l.trim()))
           .filter(Boolean);
 
         if (punches.length > 0) {
-          sendPunchesToCorpHQ(punches);
+          isSyncing = true;
+          const success = await sendPunchesToCorpHQ(punches);
+          isSyncing = false;
+          // Advance line count only when successful so failed attempts retry on next interval
+          if (success) {
+            lastLineCount = lines.length;
+          }
+        } else {
+          lastLineCount = lines.length;
         }
       }
     } catch (err) {
+      isSyncing = false;
       console.error("[MatrixBridge] Error reading export file:", err.message);
     }
   }, intervalSeconds * 1000);

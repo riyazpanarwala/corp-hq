@@ -57,6 +57,9 @@ export async function POST(request) {
     });
     return Response.json(newUser, { status: 201 });
   } catch (err) {
+    if (err?.code === "P2002" && err.meta?.target?.includes("biometric_id")) {
+      return Response.json({ error: "Biometric ID already assigned to another employee" }, { status: 422 });
+    }
     if (err?.errors) return Response.json({ error: err.errors[0].message }, { status: 422 });
     return handleApiError(err);
   }

@@ -1,4 +1,4 @@
-// src/services/matrixBiometricService.js
+const crypto = require("crypto");
 const { db } = require("../lib/db");
 const { attendanceService } = require("./attendanceService");
 const { emitToAdmins, emitToUser } = require("../lib/socket");
@@ -9,13 +9,16 @@ const { emitToAdmins, emitToUser } = require("../lib/socket");
  * - "2026/10/08 09:30:00"
  * - ISO strings
  * - Unix timestamp in seconds or milliseconds
+ *
+ * Returns null if the timestamp cannot be reliably parsed.
  */
 function parseMatrixTimestamp(raw) {
-  if (!raw) return new Date();
-  if (raw instanceof Date) return isNaN(raw.getTime()) ? new Date() : raw;
+  if (!raw) return null;
+  if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw;
   if (typeof raw === "number") {
     // If timestamp in seconds, convert to milliseconds
-    return new Date(raw < 1e11 ? raw * 1000 : raw);
+    const d = new Date(raw < 1e11 ? raw * 1000 : raw);
+    return isNaN(d.getTime()) ? null : d;
   }
   if (typeof raw === "string") {
     // Replace slash with hyphen if in YYYY/MM/DD format
@@ -31,7 +34,7 @@ function parseMatrixTimestamp(raw) {
       if (!isNaN(dObj.getTime())) return dObj;
     }
   }
-  return new Date();
+  return null;
 }
 
 /**
@@ -54,18 +57,29 @@ function normalizeDirection(rawDirection) {
 
 const matrixBiometricService = {
   /**
-   * Verifies the secret token from the request headers, query params, or body.
+   * Verifies the secret token securely using timingSafeEqual.
    */
   verifySecret(providedSecret) {
     const configuredSecret = process.env.MATRIX_WEBHOOK_SECRET;
-    // If no secret configured in environment, permit only in development mode with a warning
     if (!configuredSecret) {
       if (process.env.NODE_ENV === "production") {
         return false;
       }
       return true;
     }
-    return Boolean(providedSecret && providedSecret === configuredSecret);
+
+    if (!providedSecret || typeof providedSecret !== "string") {
+      return false;
+    }
+
+    const providedBuf = Buffer.from(providedSecret);
+    const configuredBuf = Buffer.from(configuredSecret);
+
+    if (providedBuf.length !== configuredBuf.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(providedBuf, configuredBuf);
   },
 
   /**
@@ -88,7 +102,6 @@ const matrixBiometricService = {
       };
     }
 
-    const biometricId = String(rawBiometricId).trim();
     const punchTime = parseMatrixTimestamp(
       rawPunch.EventTime ??
       rawPunch.eventTime ??
@@ -96,6 +109,16 @@ const matrixBiometricService = {
       rawPunch.timestamp ??
       rawPunch.dateTime
     );
+
+    if (!punchTime) {
+      return {
+        success: false,
+        status: "INVALID_PAYLOAD",
+        message: "Invalid or missing punch timestamp in payload",
+      };
+    }
+
+    const biometricId = String(rawBiometricId).trim();
     const direction = normalizeDirection(rawPunch.Direction ?? rawPunch.direction);
     const deviceId = String(rawPunch.DeviceID ?? rawPunch.deviceId ?? rawPunch.ControllerName ?? "MATRIX_SCANNER").trim();
 
@@ -169,7 +192,7 @@ const matrixBiometricService = {
     }
 
     const timezone = user.timezone || "UTC";
-    const today = attendanceService.todayDate(timezone);
+    const today = attendanceService.todayDate(timezone, punchTime);
 
     // 3. Determine Check-In vs Check-Out based on current attendance sessions
     let actionTaken = "NONE";
@@ -194,6 +217,8 @@ const matrixBiometricService = {
         } else {
           attendanceRecord = await attendanceService.checkIn(user.id, {
             timezone,
+            punchTime,
+            trustedSource: "MATRIX",
             notes: `Matrix Punch (${deviceId})`,
           });
           actionTaken = "CHECK_IN";
@@ -203,6 +228,7 @@ const matrixBiometricService = {
         if (openSession) {
           attendanceRecord = await attendanceService.checkOut(user.id, {
             timezone,
+            punchTime,
             notes: `Matrix Punch (${deviceId})`,
           });
           actionTaken = "CHECK_OUT";
@@ -217,6 +243,7 @@ const matrixBiometricService = {
         if (openSession) {
           attendanceRecord = await attendanceService.checkOut(user.id, {
             timezone,
+            punchTime,
             notes: `Matrix Auto Punch (${deviceId})`,
           });
           actionTaken = "CHECK_OUT";
@@ -224,6 +251,8 @@ const matrixBiometricService = {
         } else {
           attendanceRecord = await attendanceService.checkIn(user.id, {
             timezone,
+            punchTime,
+            trustedSource: "MATRIX",
             notes: `Matrix Auto Punch (${deviceId})`,
           });
           actionTaken = "CHECK_IN";

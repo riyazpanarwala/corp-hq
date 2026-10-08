@@ -6,9 +6,23 @@ import { UpdateAttendanceConfigSchema } from "@/lib/validations";
 // GET /api/attendance/config
 export async function GET(request) {
   try {
-    getCurrentUser(request);
+    const user = getCurrentUser(request);
     const config = await db.attendanceConfig.findFirst();
-    return Response.json({ config });
+    if (!config) {
+      return Response.json({ config: null });
+    }
+
+    if (user.role === "ADMIN") {
+      return Response.json({ config });
+    }
+
+    // For non-admin employees, only expose necessary enforcement flags
+    return Response.json({
+      config: {
+        enforceGeofence: config.enforceGeofence,
+        enforceIp: config.enforceIp,
+      },
+    });
   } catch (err) {
     return handleApiError(err);
   }
