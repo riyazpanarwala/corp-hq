@@ -254,8 +254,8 @@ export default function EmployeeDashboardPage() {
                       🟢 Verified ({todayRec.distanceMeters != null ? `${todayRec.distanceMeters}m from ` : ""}{todayRec.locationName || "Office"})
                     </span>
                   ) : (
-                    <span style={{ color: "var(--warning)", fontWeight: 500 }}>
-                      ⚠️ Out of geofence {todayRec.distanceMeters != null ? `(${todayRec.distanceMeters}m)` : ""}
+                    <span style={{ color: todayRec.distanceMeters != null ? "var(--warning)" : "var(--text3)", fontWeight: 500 }}>
+                      {todayRec.distanceMeters != null ? `⚠️ Outside Office (${todayRec.distanceMeters}m)` : "📍 Location unrecorded"}
                     </span>
                   )
                 )}

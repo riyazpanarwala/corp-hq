@@ -146,8 +146,8 @@ const attendanceService = {
       ? {
           allowed: true,
           workMode: "WFO",
-          locationVerified: false,
-          ipVerified: false,
+          locationVerified: true,
+          ipVerified: true,
           distanceMeters: null,
           locationName: "Matrix Scanner",
         }

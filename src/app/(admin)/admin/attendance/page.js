@@ -333,7 +333,7 @@ export default function AdminAttendancePage() {
               {r.locationVerified
                 ? "🟢 Verified"
                 : r.distanceMeters != null
-                  ? `⚠️ Out of fence (${r.distanceMeters}m)`
+                  ? `⚠️ Outside Office (${r.distanceMeters}m)`
                   : "📍 Unrecorded"}
             </span>
           )}
