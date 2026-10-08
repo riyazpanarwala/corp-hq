@@ -24,6 +24,9 @@ CREATE TABLE "biometric_punch_logs" (
 );
 
 -- CreateIndex
+CREATE UNIQUE INDEX "biometric_punch_logs_biometric_id_punch_time_device_id_key" ON "biometric_punch_logs"("biometric_id", "punch_time", "device_id");
+
+-- CreateIndex
 CREATE INDEX "biometric_punch_logs_biometric_id_idx" ON "biometric_punch_logs"("biometric_id");
 
 -- CreateIndex

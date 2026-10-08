@@ -171,17 +171,29 @@ const matrixBiometricService = {
 
     if (!user) {
       // Unmapped user - log for admin review
-      await db.biometricPunchLog.create({
-        data: {
-          biometricId,
-          punchTime,
-          direction,
-          deviceId,
-          status: "UNMAPPED_USER",
-          message: `No active employee linked to Matrix Biometric ID: ${biometricId}`,
-          rawPayload: rawPunch,
-        },
-      });
+      try {
+        await db.biometricPunchLog.create({
+          data: {
+            biometricId,
+            punchTime,
+            direction,
+            deviceId,
+            status: "UNMAPPED_USER",
+            message: `No active employee linked to Matrix Biometric ID: ${biometricId}`,
+            rawPayload: rawPunch,
+          },
+        });
+      } catch (err) {
+        if (err.code === "P2002") {
+          return {
+            success: true,
+            status: "IGNORED_DUPLICATE",
+            message: "Duplicate punch ignored (unique constraint)",
+            biometricId,
+            punchTime,
+          };
+        }
+      }
 
       return {
         success: true,
@@ -191,10 +203,38 @@ const matrixBiometricService = {
       };
     }
 
+    // 3. Atomically reserve punch processing using unique constraint (biometricId, punchTime, deviceId)
+    let punchLog;
+    try {
+      punchLog = await db.biometricPunchLog.create({
+        data: {
+          biometricId,
+          userId: user.id,
+          punchTime,
+          direction,
+          deviceId,
+          status: "IN_PROGRESS",
+          message: "Punch processing initiated",
+          rawPayload: rawPunch,
+        },
+      });
+    } catch (err) {
+      if (err.code === "P2002") {
+        return {
+          success: true,
+          status: "IGNORED_DUPLICATE",
+          message: "Duplicate punch delivery ignored (unique constraint)",
+          biometricId,
+          punchTime,
+        };
+      }
+      throw err;
+    }
+
     const timezone = user.timezone || "UTC";
     const today = attendanceService.todayDate(timezone, punchTime);
 
-    // 3. Determine Check-In vs Check-Out based on current attendance sessions
+    // 4. Determine Check-In vs Check-Out based on current attendance sessions
     let actionTaken = "NONE";
     let attendanceRecord = null;
     let message = "";
@@ -260,17 +300,12 @@ const matrixBiometricService = {
         }
       }
 
-      // 4. Log successful processing
-      const punchLog = await db.biometricPunchLog.create({
+      // Update punch log to PROCESSED
+      await db.biometricPunchLog.update({
+        where: { id: punchLog.id },
         data: {
-          biometricId,
-          userId: user.id,
-          punchTime,
-          direction,
-          deviceId,
           status: "PROCESSED",
           message: `${actionTaken}: ${message}`,
-          rawPayload: rawPunch,
         },
       });
 
@@ -303,18 +338,28 @@ const matrixBiometricService = {
     } catch (err) {
       console.error("[MatrixBiometric] Error processing punch:", err);
 
-      await db.biometricPunchLog.create({
-        data: {
-          biometricId,
-          userId: user.id,
-          punchTime,
-          direction,
-          deviceId,
-          status: "ERROR",
-          message: err.message,
-          rawPayload: rawPunch,
-        },
-      });
+      if (punchLog?.id) {
+        await db.biometricPunchLog.update({
+          where: { id: punchLog.id },
+          data: {
+            status: "ERROR",
+            message: err.message,
+          },
+        });
+      } else {
+        await db.biometricPunchLog.create({
+          data: {
+            biometricId,
+            userId: user.id,
+            punchTime,
+            direction,
+            deviceId,
+            status: "ERROR",
+            message: err.message,
+            rawPayload: rawPunch,
+          },
+        });
+      }
 
       return {
         success: false,
