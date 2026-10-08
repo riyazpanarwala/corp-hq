@@ -176,6 +176,22 @@ The seed adds four employees, current-year leave balances, about 60 days of samp
 - Password-reset responses do not reveal whether an email is registered.
 - Reset links expire after 30 minutes, work once, and invalidate the user's existing sessions after a successful reset.
 
+### Biometric Integration (Matrix COSEC)
+
+- Physical scanner punches ingest via `POST /api/integrations/matrix` authenticated by `MATRIX_WEBHOOK_SECRET`.
+- Admin links employees to their Matrix User/Badge ID in the Employees dashboard (`biometricId`).
+- Automatic session tracking: Entry punches create a check-in session; exit punches close the active session.
+- Built-in deduplication (60s debounce window) ensures accidental double finger scans are only processed once.
+- Supports both direct Web API push from Matrix and the local bridge script (`scripts/matrix-bridge.js`) for COSEC CENTRA without the Web API license.
+
+### Geo-Location & IP Verification
+
+- Support for multiple Work Modes: Office (`WFO`), Remote (`WFH`), and On Duty (`ON_DUTY`).
+- Office geofences (`radius_meters`) and authorized Wi-Fi public IPs configured via `OfficeLocation`.
+- Check-in calculates Great-Circle distance to nearest office via Haversine formula and validates client IP.
+- Admin can enable strict geofence or IP enforcement to restrict on-site check-ins within office premises.
+- All attendance records tag the work mode, verification state, detected distance, and IP address.
+
 ## Useful commands
 
 | Command | Purpose |
@@ -250,6 +266,19 @@ Leave list filters include `status`, `userId`, `page`, and `limit`. Managers use
 | `POST` | `/api/holidays` | Admin creates a holiday |
 | `DELETE` | `/api/holidays/:id` | Admin removes a holiday |
 | `GET` | `/api/reports/monthly` | Admin monthly attendance summary |
+| `GET` | `/api/attendance/config` | View geofence & IP enforcement settings |
+| `PATCH` | `/api/attendance/config` | Admin toggles geofence or IP policy |
+| `GET` | `/api/offices` | List active office locations |
+| `POST` | `/api/offices` | Admin creates an office location & geofence |
+| `PATCH` | `/api/offices/:id` | Admin updates an office location |
+| `DELETE` | `/api/offices/:id` | Admin deletes an office location |
+
+### Biometric integrations
+
+| Method | Endpoint | Access / purpose |
+| --- | --- | --- |
+| `GET` | `/api/integrations/matrix` | Integration health status and webhook configuration check |
+| `POST` | `/api/integrations/matrix` | Ingest Matrix COSEC biometric fingerprint/card punches |
 
 ## Real-time updates
 

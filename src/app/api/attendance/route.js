@@ -2,6 +2,7 @@
 import { getCurrentUser, getDirectReportIds, assertDirectReport, handleApiError, ApiError } from "@/lib/auth";
 import { attendanceService }                        from "@/services/attendanceService";
 import { AttendanceFilterSchema, CheckInSchema, ManualAttendanceSchema } from "@/lib/validations";
+import { extractClientIp }                          from "@/lib/geoUtils";
 
 // GET /api/attendance
 export async function GET(request) {
@@ -37,7 +38,10 @@ export async function POST(request) {
       record = await attendanceService.recordManual(body);
     } else {
       const body = CheckInSchema.parse(json);
-      record = await attendanceService.checkIn(user.id, body);
+      const clientIp = extractClientIp(request);
+      const attendanceBody = { ...body };
+      delete attendanceBody.trustedSource;
+      record = await attendanceService.checkIn(user.id, { ...attendanceBody, clientIp });
     }
 
     return Response.json(record, { status: 201 });

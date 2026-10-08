@@ -14,7 +14,7 @@ export async function GET(request) {
         : { isActive: true, managerId: user.id },
       select:  {
         id: true, email: true, name: true, role: true, department: true,
-        designation: true, timezone: true, managerId: true, createdAt: true,
+        designation: true, timezone: true, managerId: true, biometricId: true, createdAt: true,
         manager: { select: { id: true, name: true } },
         _count: { select: { directReports: { where: { isActive: true } } } },
       },
@@ -38,15 +38,28 @@ export async function POST(request) {
       });
       if (!manager) throw new ApiError("Manager not found", 422);
     }
+    if (body.biometricId) {
+      const existingBio = await db.user.findUnique({
+        where: { biometricId: body.biometricId },
+        select: { id: true, name: true },
+      });
+      if (existingBio) throw new ApiError(`Biometric ID already assigned to ${existingBio.name}`, 422);
+    }
     const passwordHash = await bcrypt.hash(body.password, 12);
     const { password, ...rest } = body;
     const newUser = await db.$transaction(async (tx) => {
-      const u = await tx.user.create({ data: { ...rest, passwordHash }, select: { id: true, email: true, name: true, role: true, department: true, managerId: true } });
+      const u = await tx.user.create({
+        data: { ...rest, passwordHash },
+        select: { id: true, email: true, name: true, role: true, department: true, managerId: true, biometricId: true },
+      });
       await tx.leaveBalance.create({ data: { userId: u.id, year: new Date().getFullYear() } });
       return u;
     });
     return Response.json(newUser, { status: 201 });
   } catch (err) {
+    if (err?.code === "P2002" && err.meta?.target?.includes("biometric_id")) {
+      return Response.json({ error: "Biometric ID already assigned to another employee" }, { status: 422 });
+    }
     if (err?.errors) return Response.json({ error: err.errors[0].message }, { status: 422 });
     return handleApiError(err);
   }
