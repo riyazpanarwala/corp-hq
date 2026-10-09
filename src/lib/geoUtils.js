@@ -1,4 +1,5 @@
 // src/lib/geoUtils.js
+const { isIP } = require("node:net");
 
 /**
  * Calculates the great-circle distance between two geographic coordinates
@@ -40,33 +41,27 @@ function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
 function extractClientIp(request) {
   if (!request || !request.headers) return null;
 
-  // Check direct cloudflare / real-ip headers first
-  let ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-real-ip");
-
-  if (!ip) {
-    const trustProxy = process.env.TRUST_PROXY === "true" || process.env.NODE_ENV === "production";
-    const forwarded = request.headers.get("x-forwarded-for");
-    if (forwarded && (trustProxy || process.env.NODE_ENV !== "production")) {
-      const parts = forwarded.split(",").map(p => p.trim()).filter(Boolean);
-      const hopCount = Math.max(1, parseInt(process.env.PROXY_HOPS || "1", 10));
-      // Rightmost hop from trusted reverse proxy or client IP
-      const targetIdx = Math.max(0, parts.length - hopCount);
-      ip = parts[targetIdx] || parts[0];
-    }
+  // Fetch requests do not expose the socket peer. Only accept a header explicitly
+  // configured to be overwritten by a trusted ingress; never infer trust from NODE_ENV.
+  if (process.env.TRUST_PROXY !== "true") return null;
+  const header = process.env.CLIENT_IP_HEADER || "x-forwarded-for";
+  if (!["x-forwarded-for", "x-real-ip", "cf-connecting-ip"].includes(header)) return null;
+  const raw = request.headers.get(header);
+  if (!raw) return null;
+  let ip = raw.trim();
+  if (header === "x-forwarded-for") {
+    const parts = raw.split(",").map(p => p.trim());
+    const hopCount = Number(process.env.PROXY_HOPS || "1");
+    if (!Number.isInteger(hopCount) || hopCount < 1 || parts.length < hopCount) return null;
+    ip = parts[parts.length - hopCount];
   }
-
-  if (!ip && process.env.NODE_ENV !== "production") {
-    ip = "127.0.0.1";
-  }
-
-  if (!ip) return null;
 
   // Strip IPv6-mapped IPv4 prefix
   if (ip.startsWith("::ffff:")) {
     ip = ip.substring(7);
   }
 
-  return ip;
+  return isIP(ip) ? ip : null;
 }
 
 /**

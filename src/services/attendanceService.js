@@ -3,6 +3,7 @@ const { db } = require("../lib/db");
 const { ApiError } = require("../lib/auth");
 const { emitToAdmins } = require("../lib/socket");
 const { verifyLocationAndIp } = require("../lib/geoUtils");
+const { runTransaction } = require("../lib/transaction");
 
 /**
  * Converts a date string, time string, and timezone to a UTC Date object.
@@ -14,15 +15,15 @@ const { verifyLocationAndIp } = require("../lib/geoUtils");
  */
 function zonedDateTimeToUtc(date, time, timeZone) {
   const [year, month, day] = date.split("-").map(Number);
-  const [hour, minute] = time.split(":").map(Number);
-  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+  const [hour, minute, second = 0] = time.split(":").map(Number);
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, second, 0);
 
   const offsetAt = (utcMs) => {
     const parts = new Intl.DateTimeFormat("en-US", {
       timeZone,
       year: "numeric", month: "2-digit", day: "2-digit",
       hour: "2-digit", minute: "2-digit", second: "2-digit",
-      hour12: false,
+      hourCycle: "h23",
     }).formatToParts(new Date(utcMs));
     const values = Object.fromEntries(parts.map(p => [p.type, p.value]));
     const asUtc = Date.UTC(
@@ -90,8 +91,8 @@ const attendanceService = {
    *
    * @returns {Promise<object>} Global attendance configuration record
    */
-  async getConfig() {
-    const cfg = await db.attendanceConfig.findFirst();
+  async getConfig(client = db) {
+    const cfg = await client.attendanceConfig.findFirst();
     if (!cfg) throw new ApiError("Attendance config not found", 500);
     return cfg;
   },
@@ -136,12 +137,12 @@ const attendanceService = {
    * @param {object} options - Options containing timezone, notes, workMode, latitude, longitude, clientIp, punchTime, trustedSource
    * @returns {Promise<object>} The updated or newly created attendance record with sessions
    */
-  async checkIn(userId, { timezone, notes, workMode = "WFO", latitude, longitude, clientIp, punchTime, trustedSource }) {
+  async checkIn(userId, { timezone, notes, workMode = "WFO", latitude, longitude, clientIp, punchTime, trustedSource }, client = db, events = []) {
     const checkInTime = punchTime instanceof Date && !isNaN(punchTime.getTime()) ? punchTime : new Date();
     const today = this.todayDate(timezone, checkInTime);
-    const cfg = await this.getConfig();
+    const cfg = await this.getConfig(client);
 
-    const offices = await db.officeLocation.findMany({ where: { isActive: true } });
+    const offices = await client.officeLocation.findMany({ where: { isActive: true } });
     const verification = trustedSource === "MATRIX"
       ? {
           allowed: true,
@@ -165,7 +166,69 @@ const attendanceService = {
     }
 
     try {
-      const result = await db.$transaction(async (tx) => {
+      const result = await runTransaction(client, async (tx) => {
+        // Expire or migrate stale records with checkIn set, checkOut null, and no sessions
+        // that are past the checkout window so they no longer block later check-ins.
+        const cutoff = new Date(checkInTime.getTime() - cfg.autoCheckoutHours * 3_600_000);
+        const staleSessionless = await tx.attendance.findMany({
+          where: {
+            userId,
+            checkOut: null,
+            checkIn: { not: null, lte: cutoff },
+            sessions: { none: {} },
+          },
+        });
+        for (const stale of staleSessionless) {
+          const staleTz = stale.checkInTz || timezone || "UTC";
+          const autoCheckOutTime = new Date(stale.checkIn.getTime() + cfg.autoCheckoutHours * 3_600_000);
+          const hoursWorked = cfg.autoCheckoutHours;
+          const isHalfDay = hoursWorked < toFloat(cfg.halfDayHours);
+
+          await tx.attendanceSession.create({
+            data: {
+              attendanceId: stale.id,
+              checkIn: stale.checkIn,
+              checkOut: autoCheckOutTime,
+              checkInTz: staleTz,
+              checkOutTz: staleTz,
+              hoursWorked,
+              workMode: stale.workMode || "WFO",
+              latitude: stale.latitude,
+              longitude: stale.longitude,
+              ipAddress: stale.ipAddress,
+              locationVerified: stale.locationVerified,
+              ipVerified: stale.ipVerified,
+              distanceMeters: stale.distanceMeters,
+              locationName: stale.locationName,
+              notes: stale.notes,
+            },
+          });
+
+          await tx.attendance.update({
+            where: { id: stale.id },
+            data: {
+              checkOut: autoCheckOutTime,
+              checkOutTz: staleTz,
+              hoursWorked,
+              autoCheckedOut: true,
+              isHalfDay,
+              status: isHalfDay ? "HALF_DAY" : "PRESENT",
+            },
+          });
+        }
+
+        // This predicate covers every date. Serializable isolation prevents two
+        // concurrent check-ins from creating active sessions on different days.
+        const active = await tx.attendance.findFirst({
+          where: {
+            userId,
+            OR: [
+              { sessions: { some: { checkOut: null } } },
+              { sessions: { none: {} }, checkIn: { not: null }, checkOut: null },
+            ],
+          },
+        });
+        if (active) throw new ApiError("Already checked in (session active)", 409, "DUPLICATE_CHECKIN");
         const existing = await tx.attendance.findUnique({
           where: { userId_date: { userId, date: today } },
           include: {
@@ -264,9 +327,9 @@ const attendanceService = {
         });
 
         return { record, newSessionId: record.sessions[0]?.id, isResumed: false };
-      }, { isolationLevel: "Serializable" });
+      });
 
-      emitToAdmins("attendance:checkin", {
+      const payload = {
         userId,
         userName: result.record.user.name,
         department: result.record.user.department,
@@ -279,7 +342,9 @@ const attendanceService = {
         locationVerified: verification.locationVerified,
         distanceMeters: verification.distanceMeters,
         locationName: verification.locationName,
-      });
+      };
+      if (client === db) emitToAdmins("attendance:checkin", payload);
+      else events.push({ event: "attendance:checkin", payload });
 
       return result.record;
     } catch (err) {
@@ -298,12 +363,12 @@ const attendanceService = {
    * @param {object} options - Options containing timezone, optional notes, and optional punchTime
    * @returns {Promise<object>} The updated attendance record with sessions
    */
-  async checkOut(userId, { timezone, notes, punchTime, clientIp }) {
+  async checkOut(userId, { timezone, notes, punchTime, clientIp }, client = db, events = []) {
     const checkOutTime = punchTime instanceof Date && !isNaN(punchTime.getTime()) ? punchTime : new Date();
     const today = this.todayDate(timezone, checkOutTime);
-    const cfg = await this.getConfig();
+    const cfg = await this.getConfig(client);
 
-    const { updated, openSessionId } = await db.$transaction(async (tx) => {
+    const { updated, openSessionId } = await runTransaction(client, async (tx) => {
       let record = await tx.attendance.findUnique({
         where: { userId_date: { userId, date: today } },
         include: {
@@ -313,9 +378,9 @@ const attendanceService = {
       });
 
       // Across dates/timezones, only close a recent active session (or a sessionless legacy record).
-      if (!record) {
+      if (!record || (record.sessions.length > 0 && !record.sessions.some(s => !s.checkOut)) || record.checkOut != null) {
         const cutoff = new Date(checkOutTime.getTime() - cfg.autoCheckoutHours * 3_600_000);
-        record = await tx.attendance.findFirst({
+        const activeRecord = await tx.attendance.findFirst({
           where: {
             userId,
             checkOut: null,
@@ -330,6 +395,7 @@ const attendanceService = {
             user: { select: { id: true, name: true, department: true } },
           },
         });
+        record = activeRecord || record;
       }
 
       if (!record) throw new ApiError("No active check-in found within the checkout window", 404);
@@ -359,6 +425,9 @@ const attendanceService = {
         });
       }
 
+      if (openSession.checkIn > checkOutTime) {
+        throw new ApiError("Check out must be after check in", 422, "INVALID_CHECKOUT_TIME");
+      }
       const sessionHours = Math.max(0, (checkOutTime.getTime() - openSession.checkIn.getTime()) / 3_600_000);
       const sessionHoursRounded = Math.round(sessionHours * 100) / 100;
 
@@ -398,15 +467,17 @@ const attendanceService = {
       });
 
       return { updated: updatedRecord, openSessionId: openSession.id };
-    }, { isolationLevel: "Serializable" });
+    });
 
-    emitToAdmins("attendance:checkout", {
+    const payload = {
       userId,
       checkOut: checkOutTime,
       hoursWorked: updated.hoursWorked,
       isHalfDay: updated.isHalfDay,
       sessionId: openSessionId,
-    });
+    };
+    if (client === db) emitToAdmins("attendance:checkout", payload);
+    else events.push({ event: "attendance:checkout", payload });
 
     return updated;
   },
@@ -647,24 +718,20 @@ const attendanceService = {
     let count = 0;
     for (const session of overdueSessions) {
       const tz = session.checkInTz || session.attendance.checkInTz || "UTC";
-      const today = this.todayDate(tz);
-      const recDate = session.attendance.date instanceof Date ? session.attendance.date : new Date(session.attendance.date);
-
-      if (recDate.getTime() !== today.getTime()) continue;
-
       const checkOut = new Date(session.checkIn.getTime() + cfg.autoCheckoutHours * 3_600_000);
       const sessionHours = cfg.autoCheckoutHours;
 
       try {
-        await db.$transaction(async (tx) => {
-          await tx.attendanceSession.update({
-            where: { id: session.id },
+        const closed = await runTransaction(db, async (tx) => {
+          const result = await tx.attendanceSession.updateMany({
+            where: { id: session.id, checkOut: null },
             data: {
               checkOut,
               checkOutTz: tz,
               hoursWorked: sessionHours,
             },
           });
+          if (!result.count) return false;
 
           const allSessions = await tx.attendanceSession.findMany({
             where: { attendanceId: session.attendanceId },
@@ -672,24 +739,83 @@ const attendanceService = {
           const totalHoursWorked = allSessions.reduce((sum, s) => sum + toFloat(s.hoursWorked), 0);
           const roundedTotalHours = Math.round(totalHoursWorked * 100) / 100;
           const isHalfDay = roundedTotalHours < toFloat(cfg.halfDayHours);
+          const hasOpenSession = allSessions.some(s => !s.checkOut);
+          const lastCheckOut = allSessions.reduce((last, s) => s.checkOut && (!last || s.checkOut > last) ? s.checkOut : last, null);
 
           await tx.attendance.update({
             where: { id: session.attendanceId },
             data: {
-              checkOut,
-              checkOutTz: tz,
+              checkOut: hasOpenSession ? null : lastCheckOut,
+              checkOutTz: hasOpenSession ? null : tz,
               hoursWorked: roundedTotalHours,
               autoCheckedOut: true,
               isHalfDay,
               status: isHalfDay ? "HALF_DAY" : "PRESENT",
             },
           });
+          return true;
         });
-        count++;
+        if (closed) count++;
       } catch (e) {
         console.error(`[autoCheckout] Failed to auto-checkout session ${session.id}:`, e.message);
       }
     }
+
+    const overdueSessionless = await db.attendance.findMany({
+      where: {
+        checkOut: null,
+        checkIn: { not: null, lte: cutoff },
+        sessions: { none: {} },
+      },
+    });
+
+    for (const record of overdueSessionless) {
+      const tz = record.checkInTz || "UTC";
+      const checkOut = new Date(record.checkIn.getTime() + cfg.autoCheckoutHours * 3_600_000);
+      const sessionHours = cfg.autoCheckoutHours;
+      const isHalfDay = sessionHours < toFloat(cfg.halfDayHours);
+
+      try {
+        const closed = await runTransaction(db, async (tx) => {
+          await tx.attendanceSession.create({
+            data: {
+              attendanceId: record.id,
+              checkIn: record.checkIn,
+              checkOut,
+              checkInTz: tz,
+              checkOutTz: tz,
+              hoursWorked: sessionHours,
+              workMode: record.workMode || "WFO",
+              latitude: record.latitude,
+              longitude: record.longitude,
+              ipAddress: record.ipAddress,
+              locationVerified: record.locationVerified,
+              ipVerified: record.ipVerified,
+              distanceMeters: record.distanceMeters,
+              locationName: record.locationName,
+              notes: record.notes,
+            },
+          });
+
+          await tx.attendance.update({
+            where: { id: record.id },
+            data: {
+              checkOut,
+              checkOutTz: tz,
+              hoursWorked: sessionHours,
+              autoCheckedOut: true,
+              isHalfDay,
+              status: isHalfDay ? "HALF_DAY" : "PRESENT",
+            },
+          });
+          return true;
+        });
+        if (closed) count++;
+      } catch (e) {
+        console.error(`[autoCheckout] Failed to auto-checkout sessionless record ${record.id}:`, e.message);
+      }
+    }
+
     return count;
   },
 
@@ -727,4 +853,4 @@ const attendanceService = {
   },
 };
 
-module.exports = { attendanceService };
+module.exports = { attendanceService, zonedDateTimeToUtc };
