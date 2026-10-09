@@ -36,8 +36,10 @@ function setup(record, { today = false } = {}) {
     attendance: {
       findUnique: async () => today ? record : null,
       findFirst: async ({ where }) => record && matches(record, where) ? record : null,
+      findMany: async ({ where } = {}) => record && matches(record, where) ? [record] : [],
       update: async ({ data }) => {
         calls.parents.push(data);
+        if (record) Object.assign(record, data);
         return { ...record, ...data, sessions, user: { name: "Employee" } };
       },
       create: async ({ data }) => ({ ...data, sessions: [{ id: 10, ...data.sessions.create }], user: { name: "Employee" } }),
@@ -182,4 +184,24 @@ test("auto-checkout does not overwrite a session closed after the scan", async (
   db.attendanceSession.updateMany = async () => ({ count: 0 });
   assert.equal(await service.autoCheckoutOverdue(), 0);
   assert.equal(calls.parents.length, 0);
+});
+
+test("check-in expires stale sessionless legacy records and succeeds", async () => {
+  const stale = { id: 1, userId: 7, checkIn: new Date("2026-10-06T09:00:00Z"), checkOut: null, sessions: [] };
+  const { service, calls } = setup(stale);
+  const result = await service.checkIn(7, { timezone: "UTC", trustedSource: "MATRIX", punchTime: checkout.punchTime });
+  assert.equal(calls.created.length, 1);
+  assert.equal(calls.parents.length, 1);
+  assert.equal(stale.checkOut.toISOString(), "2026-10-06T19:00:00.000Z");
+  assert.equal(result.sessions[0].checkIn, checkout.punchTime);
+});
+
+test("check-in rejects recent sessionless record within checkout window", async () => {
+  const recent = { id: 1, userId: 7, checkIn: new Date("2026-10-08T00:00:00Z"), checkOut: null, sessions: [] };
+  const { service, calls } = setup(recent);
+  await assert.rejects(
+    service.checkIn(7, { timezone: "UTC", trustedSource: "MATRIX", punchTime: checkout.punchTime }),
+    error => error.code === "DUPLICATE_CHECKIN"
+  );
+  assert.equal(calls.created.length, 0);
 });

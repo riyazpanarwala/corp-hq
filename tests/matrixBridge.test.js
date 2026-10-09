@@ -13,7 +13,7 @@ function setup(responses) {
     module: { exports: {} },
     require: name => name === "fs" ? { existsSync: () => true, readFileSync: () => content } : {},
     process: { env: { MATRIX_WEBHOOK_SECRET: "test" }, argv: [] },
-    console: { log() {}, error() {} },
+    console: { log() {}, error() {}, warn() {} },
     setInterval: callback => { tick = callback; },
     fetch: async (url, options) => {
       sent.push(JSON.parse(options.body));
@@ -47,4 +47,13 @@ test("CSV pointer stays before failed punches and advances after acknowledged re
   await a.tick(); await a.tick(); await a.tick();
   assert.equal(a.sent.length, 2);
   assert.deepEqual(a.sent[0], a.sent[1]);
+});
+
+test("bridge acknowledges permanent rejections like INVALID_PAYLOAD and rejects HTTP 500", async () => {
+  const a = setup([
+    { status: 422, body: { success: false, results: [{ success: false, status: "INVALID_PAYLOAD" }] } },
+    { status: 500, body: { success: false, error: "Internal Server Error" } },
+  ]);
+  assert.equal(await a.sendPunchesToCorpHQ([{ UserID: "7" }]), true);
+  assert.equal(await a.sendPunchesToCorpHQ([{ UserID: "7" }]), false);
 });

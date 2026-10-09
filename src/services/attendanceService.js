@@ -167,6 +167,56 @@ const attendanceService = {
 
     try {
       const result = await runTransaction(client, async (tx) => {
+        // Expire or migrate stale records with checkIn set, checkOut null, and no sessions
+        // that are past the checkout window so they no longer block later check-ins.
+        const cutoff = new Date(checkInTime.getTime() - cfg.autoCheckoutHours * 3_600_000);
+        const staleSessionless = await tx.attendance.findMany({
+          where: {
+            userId,
+            checkOut: null,
+            checkIn: { not: null, lte: cutoff },
+            sessions: { none: {} },
+          },
+        });
+        for (const stale of staleSessionless) {
+          const staleTz = stale.checkInTz || timezone || "UTC";
+          const autoCheckOutTime = new Date(stale.checkIn.getTime() + cfg.autoCheckoutHours * 3_600_000);
+          const hoursWorked = cfg.autoCheckoutHours;
+          const isHalfDay = hoursWorked < toFloat(cfg.halfDayHours);
+
+          await tx.attendanceSession.create({
+            data: {
+              attendanceId: stale.id,
+              checkIn: stale.checkIn,
+              checkOut: autoCheckOutTime,
+              checkInTz: staleTz,
+              checkOutTz: staleTz,
+              hoursWorked,
+              workMode: stale.workMode || "WFO",
+              latitude: stale.latitude,
+              longitude: stale.longitude,
+              ipAddress: stale.ipAddress,
+              locationVerified: stale.locationVerified,
+              ipVerified: stale.ipVerified,
+              distanceMeters: stale.distanceMeters,
+              locationName: stale.locationName,
+              notes: stale.notes,
+            },
+          });
+
+          await tx.attendance.update({
+            where: { id: stale.id },
+            data: {
+              checkOut: autoCheckOutTime,
+              checkOutTz: staleTz,
+              hoursWorked,
+              autoCheckedOut: true,
+              isHalfDay,
+              status: isHalfDay ? "HALF_DAY" : "PRESENT",
+            },
+          });
+        }
+
         // This predicate covers every date. Serializable isolation prevents two
         // concurrent check-ins from creating active sessions on different days.
         const active = await tx.attendance.findFirst({
@@ -710,6 +760,62 @@ const attendanceService = {
         console.error(`[autoCheckout] Failed to auto-checkout session ${session.id}:`, e.message);
       }
     }
+
+    const overdueSessionless = await db.attendance.findMany({
+      where: {
+        checkOut: null,
+        checkIn: { not: null, lte: cutoff },
+        sessions: { none: {} },
+      },
+    });
+
+    for (const record of overdueSessionless) {
+      const tz = record.checkInTz || "UTC";
+      const checkOut = new Date(record.checkIn.getTime() + cfg.autoCheckoutHours * 3_600_000);
+      const sessionHours = cfg.autoCheckoutHours;
+      const isHalfDay = sessionHours < toFloat(cfg.halfDayHours);
+
+      try {
+        const closed = await runTransaction(db, async (tx) => {
+          await tx.attendanceSession.create({
+            data: {
+              attendanceId: record.id,
+              checkIn: record.checkIn,
+              checkOut,
+              checkInTz: tz,
+              checkOutTz: tz,
+              hoursWorked: sessionHours,
+              workMode: record.workMode || "WFO",
+              latitude: record.latitude,
+              longitude: record.longitude,
+              ipAddress: record.ipAddress,
+              locationVerified: record.locationVerified,
+              ipVerified: record.ipVerified,
+              distanceMeters: record.distanceMeters,
+              locationName: record.locationName,
+              notes: record.notes,
+            },
+          });
+
+          await tx.attendance.update({
+            where: { id: record.id },
+            data: {
+              checkOut,
+              checkOutTz: tz,
+              hoursWorked: sessionHours,
+              autoCheckedOut: true,
+              isHalfDay,
+              status: isHalfDay ? "HALF_DAY" : "PRESENT",
+            },
+          });
+          return true;
+        });
+        if (closed) count++;
+      } catch (e) {
+        console.error(`[autoCheckout] Failed to auto-checkout sessionless record ${record.id}:`, e.message);
+      }
+    }
+
     return count;
   },
 

@@ -193,7 +193,7 @@ The seed adds four employees, current-year leave balances, about 60 days of samp
 - Check-in calculates Great-Circle distance to nearest office via Haversine formula and validates client IP.
 - Admin can enable strict geofence or IP enforcement to restrict on-site check-ins within office premises.
 - All attendance records tag the work mode, verification state, detected distance, and IP address.
-- IP headers are ignored by default. Set `TRUST_PROXY=true` only when a trusted ingress overwrites the selected header and prevents direct access to the application. `CLIENT_IP_HEADER` defaults to `x-forwarded-for`; `PROXY_HOPS` counts trusted hops from its right. Use `x-real-ip` or `cf-connecting-ip` only when that header is overwritten by your trusted ingress. Without this configuration, the IP remains unknown and enforced IP checks reject the request.
+- IP headers are ignored by default. Set `TRUST_PROXY=true` only when a trusted ingress overwrites the selected header and prevents direct access to the application. `CLIENT_IP_HEADER` defaults to `x-forwarded-for`; `PROXY_HOPS` counts trusted hops from its right. Use `x-real-ip` or `cf-connecting-ip` only when that header is overwritten by your trusted ingress. Without this configuration, the IP remains unknown and enforced IP checks reject requests when office locations are configured (if no offices exist, on-site check-ins are allowed by default).
 
 ## Useful commands
 

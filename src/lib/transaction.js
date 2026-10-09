@@ -1,4 +1,12 @@
-// Reuse an enclosing transaction, or retry PostgreSQL serialization conflicts.
+/**
+ * Executes a database operation within a transaction using Serializable isolation.
+ * Reuses an already enclosing transaction client if provided, or retries on serialization
+ * conflicts (P2034) or concurrent unique violations (P2002) up to 2 retry attempts.
+ *
+ * @param {object} client - Prisma client or active transaction client
+ * @param {Function} operation - Async callback receiving the transactional client
+ * @returns {Promise<any>} Result of the transaction operation
+ */
 async function runTransaction(client, operation) {
   if (!client.$transaction) return operation(client);
   for (let attempt = 0; ; attempt++) {

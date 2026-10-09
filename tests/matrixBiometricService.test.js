@@ -155,8 +155,29 @@ test("batch failure blocks later punches for the same employee until retry", asy
   const failed = await a.matrixBiometricService.processPayload(punches);
   assert.equal(failed.success, false);
   assert.equal(failed.failed, 2);
+  assert.equal(failed.results[1].biometricId, "7");
   assert.equal(a.state.actions.length, 0);
   const retried = await a.matrixBiometricService.processPayload(punches);
   assert.equal(retried.success, true);
   assert.deepEqual(a.state.actions, ["IN", "OUT"]);
+});
+
+test("IN throws and fails when open session exceeds autoCheckoutHours", async () => {
+  const checkIn = new Date("2026-10-07T12:00:00Z"); // 16h earlier, exceeding autoCheckoutHours (10)
+  const a = setup({ active: { checkIn, sessions: [{ checkIn, checkOut: null }] } });
+  const res = await a.matrixBiometricService.processSinglePunch(event);
+  assert.equal(res.status, "ERROR");
+  assert.match(res.message, /Active session exceeds checkout window/);
+  assert.equal(a.state.actions.length, 0);
+});
+
+test("INVALID_PAYLOAD does not block subsequent valid punches for the same employee", async () => {
+  const a = setup();
+  const invalidPunch = { ...event, EventTime: "invalid-time" };
+  const validPunch = { ...event, EventTime: "2026-10-08T04:00:00Z" };
+  const res = await a.matrixBiometricService.processPayload([invalidPunch, validPunch]);
+  assert.equal(res.success, false);
+  assert.equal(res.results[0].status, "INVALID_PAYLOAD");
+  assert.equal(res.results[1].status, "PROCESSED");
+  assert.deepEqual(a.state.actions, ["IN"]);
 });

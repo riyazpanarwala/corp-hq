@@ -4,7 +4,14 @@ const { attendanceService, zonedDateTimeToUtc } = require("./attendanceService")
 const { runTransaction } = require("../lib/transaction");
 const { emitToAdmins, emitToUser } = require("../lib/socket");
 
-// Zone-free scanner timestamps use the configured scanner zone, then the employee zone.
+/**
+ * Parses raw scanner timestamp string or number into a UTC Date object using the specified timezone.
+ * Handles ISO timestamps with offsets, local date/time patterns, and timestamps with zone offsets.
+ *
+ * @param {string|number|Date} raw - Raw timestamp from scanner punch payload
+ * @param {string} [timezone="UTC"] - Target IANA timezone identifier
+ * @returns {Date|null} Parsed UTC Date or null if invalid
+ */
 function parseMatrixTimestamp(raw, timezone = "UTC") {
   if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw;
   if (typeof raw === "number") {
@@ -38,6 +45,12 @@ function parseMatrixTimestamp(raw, timezone = "UTC") {
   }
 }
 
+/**
+ * Normalizes punch direction strings into IN, OUT, or AUTO.
+ *
+ * @param {string|number} raw - Raw direction identifier from punch payload
+ * @returns {"IN"|"OUT"|"AUTO"} Normalized direction
+ */
 function normalizeDirection(raw) {
   const direction = String(raw ?? "AUTO").trim().toUpperCase();
   if (["0", "IN", "ENTRY", "CHECKIN", "CHECK_IN"].includes(direction)) return "IN";
@@ -46,6 +59,12 @@ function normalizeDirection(raw) {
 }
 
 const matrixBiometricService = {
+  /**
+   * Verifies the webhook secret token using timing-safe comparison.
+   *
+   * @param {string} providedSecret - Secret passed in header or payload
+   * @returns {boolean} True if secret matches configured MATRIX_WEBHOOK_SECRET
+   */
   verifySecret(providedSecret) {
     const configuredSecret = process.env.MATRIX_WEBHOOK_SECRET;
     if (!configuredSecret) return process.env.NODE_ENV !== "production";
@@ -55,6 +74,14 @@ const matrixBiometricService = {
     return provided.length === configured.length && crypto.timingSafeEqual(provided, configured);
   },
 
+  /**
+   * Processes an individual raw biometric punch transactionally.
+   * Resolves employee mapping, deduplicates nearby punches, applies check-in or checkout,
+   * and records a BiometricPunchLog entry.
+   *
+   * @param {object} rawPunch - Raw punch event object from Matrix scanner or webhook
+   * @returns {Promise<object>} Processing outcome with status, actionTaken, and IDs
+   */
   async processSinglePunch(rawPunch) {
     const rawId = rawPunch?.UserID ?? rawPunch?.userId ?? rawPunch?.biometricId ?? rawPunch?.EnrollmentID ?? rawPunch?.badgeId;
     const biometricId = String(rawId ?? "").trim();
@@ -134,8 +161,10 @@ const matrixBiometricService = {
             } else {
               actionTaken = "NO_OPEN_SESSION";
             }
-          } else if (active) {
+          } else if (active && recentActive) {
             actionTaken = "SESSION_ALREADY_OPEN";
+          } else if (active) {
+            throw new Error("Active session exceeds checkout window; retry after automatic checkout");
           } else {
             await attendanceService.checkIn(user.id, { ...options, trustedSource: "MATRIX" }, tx, events);
             actionTaken = "CHECK_IN";
@@ -159,27 +188,40 @@ const matrixBiometricService = {
       } catch (logError) {
         if (logError.code !== "P2002") console.error("[MatrixBiometric] Failed to log punch error:", logError);
       }
-      return { success: false, status: "ERROR", message: err.message, userId: user?.id };
+      return { success: false, status: "ERROR", message: err.message, userId: user?.id, biometricId };
     }
   },
 
+  /**
+   * Processes a batch of biometric punches in order, collecting summary counts and results.
+   * If an earlier punch for an employee fails with a transient ERROR, subsequent punches
+   * for that employee in the batch are deferred to preserve chronological ordering.
+   *
+   * @param {object|object[]|{events: object[]}} payload - Batch webhook payload of punch events
+   * @returns {Promise<object>} Processing summary including success status and per-punch results
+   */
   async processPayload(payload) {
     const events = Array.isArray(payload) ? payload : Array.isArray(payload?.events) ? payload.events : payload ? [payload] : [];
     const results = [];
     const blockedIds = new Set();
     for (const event of events) {
       const id = String(event?.UserID ?? event?.userId ?? event?.biometricId ?? event?.EnrollmentID ?? event?.badgeId ?? "").trim();
-      if (blockedIds.has(id)) {
-        results.push({ success: false, status: "ERROR", message: "Earlier punch for this employee failed; retry in order" });
+      if (id && blockedIds.has(id)) {
+        results.push({
+          success: false,
+          status: "ERROR",
+          message: "Earlier punch for this employee failed; retry in order",
+          biometricId: id,
+        });
         continue;
       }
       try {
         const result = await this.processSinglePunch(event);
         results.push(result);
-        if (!result.success) blockedIds.add(id);
+        if (result.status === "ERROR" && id) blockedIds.add(id);
       } catch (err) {
-        results.push({ success: false, status: "ERROR", message: err.message });
-        blockedIds.add(id);
+        results.push({ success: false, status: "ERROR", message: err.message, ...(id ? { biometricId: id } : {}) });
+        if (id) blockedIds.add(id);
       }
     }
     return {
